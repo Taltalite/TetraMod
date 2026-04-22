@@ -3,34 +3,42 @@
 ## Scope
 
 This repository is the only writable target.
+
 Reference directories:
-- ../bonito-mixed
 - ../bonitov1.1.0
 
 Do not modify either reference directory.
 
-## Goal
+## Current goal
 
-Migrate only these two commands from ../bonito-mixed into this repository:
-- train_mod
-- basecaller_mod
+The current task is to debug and fix behavior differences between:
+- `tetramod basecaller`
+- `bonito basecaller`
 
-Expose them in this repository as:
-- tetramod train
-- tetramod basecaller
+The target is functional parity where intended.
 
 ## Rules
 
-- Do not migrate any other Bonito commands.
-- Do not create big migration plans or architecture documents.
-- Implement directly.
-- If helper code is required, copy the minimum necessary code only.
-- If provenance is unclear, compare against ../bonitov1.1.0 to distinguish upstream code from custom code.
-- Put Bonito-derived helper code under src/tetramod/adapters/bonito/ when practical.
-- Prefer small, runnable changes.
-- Update pyproject.toml so the CLI can run.
-- Add at least one minimal smoke test or import test.
-- At the end, report:
-  1. files changed
-  2. what was copied from bonito-mixed
-  3. any remaining dependency on Bonito
+- Focus on `basecaller` only unless the evidence clearly shows a shared dependency also affects `train`.
+- Prefer diagnosis first, then minimal code changes.
+- Reproduce the discrepancy before changing code.
+- Compare against:
+  - `../bonitov1.1.0` for upstream baseline behavior
+- Do not do broad refactors.
+- Do not rename modules or reorganize the package unless required for the fix.
+- Keep changes small and reviewable.
+- Add or update a minimal regression test or smoke check whenever a discrepancy is fixed.
+- At the end of each task, report:
+  1. reproduced difference
+  2. root cause or current hypothesis
+  3. files changed
+  4. validation performed
+  5. remaining known gaps
+
+## Preferred workflow
+
+1. reproduce mismatch
+2. localize mismatch to argument parsing / preprocessing / model loading / decoding / writing
+3. compare corresponding code paths with `../bonitov1.1.0`
+4. apply minimal fix
+5. validate with the same input again

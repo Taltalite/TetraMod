@@ -99,6 +99,13 @@ def _decode_basecall_batch(model, base_scores: torch.Tensor, reverse: bool = Fal
             "basecaller_mod currently requires a CUDA device for beam-search basecalling. "
             "Use a CUDA device or validate with CLI/import smoke checks only."
         )
+    raw_score_size = model.seqdist.n_base ** (model.seqdist.state_len + 1)
+    if base_scores.shape[-1] != raw_score_size:
+        raise RuntimeError(
+            "basecaller_mod received expanded CRF scores that are incompatible with "
+            "koi beam-search decoding. Rerun with --use-koi."
+        )
+    base_scores = base_scores.permute(1, 0, 2).contiguous()
     return decode_scores(base_scores, model.seqdist, reverse=reverse)
 
 
@@ -108,10 +115,16 @@ def _run_model_on_batch(model, batch: torch.Tensor, reverse: bool = False) -> Di
     with torch.inference_mode():
         outputs = model(batch.to(device=device, dtype=model_dtype, non_blocking=True))
 
+    base_scores_for_mods = (
+        model.expand_base_scores(outputs["base_scores"])
+        if hasattr(model, "expand_base_scores")
+        else outputs["base_scores"]
+    )
+
     return {
         "basecall_attrs": _decode_basecall_batch(model, outputs["base_scores"], reverse=reverse),
         "model_outputs": {
-            "base_scores": outputs["base_scores"].detach().cpu().permute(1, 0, 2).contiguous(),
+            "base_scores": base_scores_for_mods.detach().cpu().permute(1, 0, 2).contiguous(),
             "mod_logits_by_base": {
                 head_name: logits.detach().cpu().contiguous()
                 for head_name, logits in outputs["mod_logits_by_base"].items()

@@ -306,6 +306,42 @@ class MultiHeadModel(torch.nn.Module):
         for module in self._basecalling_modules():
             module.eval()
 
+    def _base_crf_encoder(self) -> LinearCRFEncoder | None:
+        if self._native_crf_in_encoder:
+            return self.encoder._modules["crf"]
+        return getattr(self, "crf", None)
+
+    def use_koi(self, **kwargs) -> None:
+        crf = self._base_crf_encoder()
+        if crf is None:
+            raise RuntimeError("MultiHeadModel cannot enable koi without a LinearCRFEncoder.")
+        crf.expand_blanks = False
+
+    def expand_base_scores(self, base_scores: torch.Tensor) -> torch.Tensor:
+        if base_scores.shape[-1] == self.seqdist.n_score():
+            return base_scores
+
+        crf = self._base_crf_encoder()
+        raw_score_size = self.seqdist.n_base ** (self.seqdist.state_len + 1)
+        if (
+            crf is None
+            or crf.blank_score is None
+            or base_scores.shape[-1] != raw_score_size
+        ):
+            return base_scores
+
+        t_steps, batch_size, score_size = base_scores.shape
+        return F.pad(
+            base_scores.view(
+                t_steps,
+                batch_size,
+                score_size // self.seqdist.n_base,
+                self.seqdist.n_base,
+            ),
+            (1, 0, 0, 0, 0, 0, 0, 0),
+            value=float(crf.blank_score),
+        ).view(t_steps, batch_size, -1)
+
     def trainable_parameters(self):
         return [param for param in self.parameters() if param.requires_grad]
 

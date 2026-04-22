@@ -66,13 +66,6 @@ def main(args):
     deps = _imports()
     _check_cuda_available(deps["torch"], args.device)
 
-    if args.use_koi:
-        sys.stderr.write(
-            "> error: basecaller_mod stage-two minimal path does not support --use-koi yet; "
-            "rerun with --no-use-koi\n"
-        )
-        raise SystemExit(1)
-
     if args.revcomp:
         sys.stderr.write(
             "> error: basecaller_mod stage-two minimal path does not support --revcomp; "
@@ -113,7 +106,7 @@ def main(args):
             overlap=args.overlap,
             batchsize=args.batchsize,
             quantize=args.quantize,
-            use_koi=False,
+            use_koi=args.use_koi,
         )
         model = model.apply(deps["fuse_bn_"])
     except FileNotFoundError:
@@ -132,7 +125,7 @@ def main(args):
 
     if args.verbose:
         sys.stderr.write(f"> model basecaller params: {model.config['basecaller']}\n")
-        sys.stderr.write("> koi disabled for stage-two minimal basecaller_mod path\n")
+        sys.stderr.write(f"> koi {'enabled' if args.use_koi else 'disabled'}\n")
 
     if args.reference:
         sys.stderr.write("> loading reference\n")
@@ -255,7 +248,7 @@ def argparser():
     koi_parser = parser.add_mutually_exclusive_group(required=False)
     koi_parser.add_argument("--use-koi", dest="use_koi", action="store_true")
     koi_parser.add_argument("--no-use-koi", dest="use_koi", action="store_false")
-    parser.set_defaults(use_koi=False)
+    parser.set_defaults(use_koi=True)
     parser.add_argument("--overlap", default=None, type=int)
     parser.add_argument("--chunksize", default=None, type=int)
     parser.add_argument("--batchsize", default=None, type=int)
