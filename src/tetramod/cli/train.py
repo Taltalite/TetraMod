@@ -54,6 +54,20 @@ def _imports():
     }
 
 
+def _check_device_available(torch, device):
+    if str(device).lower() == "cpu":
+        return
+    if torch.cuda.is_available():
+        return
+    cuda_build = torch.version.cuda or "unknown"
+    raise SystemExit(
+        "tetramod train requested a CUDA device, but PyTorch cannot initialize CUDA. "
+        f"Installed torch={torch.__version__} reports CUDA build={cuda_build}. "
+        "Use --device cpu for a CPU-only training run, or reinstall PyTorch with a CUDA "
+        "build compatible with your NVIDIA driver."
+    )
+
+
 def load_pretrained_config(pretrained):
     deps = _imports()
     dirname = deps["resolve_model_dir"](pretrained)
@@ -198,6 +212,7 @@ def main(args):
         raise SystemExit(1)
     os.makedirs(workdir, exist_ok=True)
 
+    _check_device_available(torch, args.device)
     deps["init"](args.seed, args.device, (not args.nondeterministic))
     device = torch.device(args.device)
 

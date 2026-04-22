@@ -1,7 +1,0 @@
-Metadata-Version: 2.4
-Name: tetramod
-Version: 0.1.0
-Summary: TetraMod CLI package for selected Bonito modified-base workflows.
-Requires-Python: >=3.10
-Requires-Dist: ont-bonito
-Requires-Dist: toml

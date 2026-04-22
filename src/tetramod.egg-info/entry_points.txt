@@ -1,2 +1,0 @@
-[console_scripts]
-tetramod = tetramod.cli:main

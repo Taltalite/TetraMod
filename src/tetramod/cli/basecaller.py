@@ -11,6 +11,7 @@ import sys
 
 def _imports():
     import numpy as np
+    import torch
     from tqdm import tqdm
 
     from bonito.aligner import Aligner, align_map
@@ -40,11 +41,30 @@ def _imports():
         "process_cancel": process_cancel,
         "tqdm": tqdm,
         "tqdm_environ": tqdm_environ,
+        "torch": torch,
     }
+
+
+def _check_cuda_available(torch, device):
+    if str(device).lower() == "cpu":
+        raise SystemExit(
+            "tetramod basecaller currently requires a CUDA device for modified-base "
+            "beam-search decoding; --device cpu is not supported for this command."
+        )
+    if torch.cuda.is_available():
+        return
+    cuda_build = torch.version.cuda or "unknown"
+    raise SystemExit(
+        "tetramod basecaller requested CUDA, but PyTorch cannot initialize CUDA. "
+        f"Installed torch={torch.__version__} reports CUDA build={cuda_build}. "
+        "Install a PyTorch CUDA build compatible with your NVIDIA driver before running "
+        "modified-base basecalling."
+    )
 
 
 def main(args):
     deps = _imports()
+    _check_cuda_available(deps["torch"], args.device)
 
     if args.use_koi:
         sys.stderr.write(

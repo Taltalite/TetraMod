@@ -1,5 +1,6 @@
 # Python bytecode and caches
 __pycache__/
+**/__pycache__/
 *.py[cod]
 *$py.class
 .pytest_cache/
@@ -16,6 +17,8 @@ htmlcov/
 build/
 dist/
 *.egg-info/
+/src/*.egg-info/
+/src/tetramod.egg-info/
 pip-wheel-metadata/
 *.egg
 *.whl
@@ -80,4 +83,4 @@ training.csv
 .ipynb_checkpoints/
 
 # Tool-generated project metadata
-src/*.egg-info/
+*.egg-info/
