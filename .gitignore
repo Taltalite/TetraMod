@@ -1,0 +1,83 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+
+# Packaging and build outputs
+build/
+dist/
+*.egg-info/
+pip-wheel-metadata/
+*.egg
+*.whl
+
+# Virtual environments and local dependency caches
+.venv/
+venv/
+env/
+ENV/
+.uv-cache/
+.cache/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+*.local
+
+# IDEs and editor state
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs and temporary files
+*.log
+logs/
+tmp/
+temp/
+*.tmp
+*.bak
+
+# TetraMod / Bonito training outputs and model checkpoints
+runs/
+output/
+outputs/
+checkpoints/
+weights_*.tar
+optim_*.tar
+losses_*.csv
+training.csv
+
+# Large sequencing, alignment, and numpy dataset artifacts
+*.pod5
+*.fast5
+*.bam
+*.bai
+*.sam
+*.cram
+*.crai
+*.mmi
+*.fastq
+*.fq
+*.fasta
+*.fa
+*.npy
+*.npz
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Tool-generated project metadata
+src/*.egg-info/
