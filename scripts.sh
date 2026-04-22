@@ -5,7 +5,7 @@ tetramod train -f /data/biolab-nvme-pcie2/lijy/m6A/training_model/rna004_m6a_mix
     --epochs 30 \
     --batch 64 \
     --lr 1e-4 \
-    --chunks 20000 \
-    --valid-chunks 1500 \
+    --chunks 50000 \
+    --valid-chunks 5000 \
     --device cuda:0 \
-    > /home/lijy/workspace/bonito/log/rna004_m6a_mix_only_minitest.log 2>&1
+    > /home/lijy/workspace/TetraMod/log/train_log/rna004_m6a_mix_tetra.log 2>&1
