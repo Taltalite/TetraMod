@@ -72,6 +72,13 @@ def safe_div(numerator: float, denominator: float) -> float:
     return float(numerator) / float(denominator) if denominator else 0.0
 
 
+def auc_trapezoid(y: np.ndarray, x: np.ndarray) -> float:
+    integrate = getattr(np, "trapezoid", None)
+    if integrate is None:
+        integrate = np.trapz
+    return float(integrate(y, x))
+
+
 def align(ref: str, seq: str) -> AlignResult:
     if not ref:
         return AlignResult(ref_len=0, seq_len=len(seq), num_insertions=len(seq))
@@ -180,11 +187,11 @@ def binary_auc_metrics(y_true: np.ndarray, y_score: np.ndarray) -> Tuple[Optiona
 
     tpr = np.r_[0.0, tps / positives, 1.0]
     fpr = np.r_[0.0, fps / negatives, 1.0]
-    roc_auc = float(np.trapz(tpr, fpr))
+    roc_auc = auc_trapezoid(tpr, fpr)
 
     precision = np.r_[1.0, tps / np.maximum(tps + fps, 1)]
     recall = np.r_[0.0, tps / positives]
-    pr_auc = float(np.trapz(precision, recall))
+    pr_auc = auc_trapezoid(precision, recall)
     return roc_auc, pr_auc
 
 
