@@ -15,6 +15,28 @@ to models produced by `tetramod train`.
   `evaluate_train_mod.py` into k-mer balanced binary modification metrics.
 - `compare_basecaller_bams.py`: compares `tetramod basecaller` and `bonito
   basecaller` BAM/SAM outputs on the intersection of read ids.
+- `evaluate_modbam_gold_sites.py`: aggregates MM/ML modified-base calls from an
+  aligned modBAM into site-level m6A scores and compares them with gold BED or
+  m6A-Atlas-style site tables.
+
+## m6A Gold Site Evaluation
+
+Example:
+
+```bash
+python validate/evaluate_modbam_gold_sites.py \
+  --bam tetramod_basecaller_test_fix.bam \
+  --gold-bed m6A_gold.hg38.bed \
+  --reference hg38.fa \
+  --output-dir val_res/m6A_gold_eval \
+  --mod-code a \
+  --canonical-base A \
+  --min-coverage 5 \
+  --prob-threshold 0.5
+```
+
+The evaluator writes `site_level_predictions.tsv`, positive/negative site TSVs,
+`summary.json`, `summary.txt`, and PNG plots when matplotlib is available.
 
 The original `bonito-mixed/validate` directory also contains basecaller output
 debugging, POD5 inference, BAM comparison, and visualization scripts. Those are
