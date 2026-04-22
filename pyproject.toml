@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tetramod"
+version = "0.1.0"
+description = "TetraMod CLI package for selected Bonito modified-base workflows."
+requires-python = ">=3.10"
+dependencies = [
+    "ont-bonito",
+    "toml",
+]
+
+[project.scripts]
+tetramod = "tetramod.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+namespaces = false
+
+[tool.setuptools.package-data]
+"tetramod" = ["models/configs/*.toml"]
+
+[tool.uv.pip]
+index-url = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple/"
+extra-index-url = ["https://pypi.org/simple"]
