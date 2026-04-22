@@ -36,6 +36,45 @@ class ModbamGoldSitesTest(unittest.TestCase):
         self.assertAlmostEqual(calls[2], 128 / 255)
         self.assertEqual(calls[3], 1.0)
 
+    def test_coordinate_convention_transform_applies_shift_and_strand(self):
+        from validate.check_gold_coordinate_conventions import transform_gold
+
+        gold = {
+            ("chr1", 10, "+"): {"name": "plus"},
+            ("chr1", 20, "-"): {"name": "minus"},
+        }
+
+        shifted = transform_gold(gold, shift=-1, convention="as_is")
+        self.assertIn(("chr1", 9, "+"), shifted)
+        self.assertIn(("chr1", 19, "-"), shifted)
+
+        flipped = transform_gold(gold, shift=0, convention="flip_gold_strand")
+        self.assertIn(("chr1", 10, "-"), flipped)
+        self.assertIn(("chr1", 20, "+"), flipped)
+
+        ignored = transform_gold(gold, shift=1, convention="ignore_strand")
+        self.assertIn(("chr1", 11, "."), ignored)
+        self.assertIn(("chr1", 21, "."), ignored)
+
+    def test_collapse_stats_by_strand_merges_coverage_and_probs(self):
+        from validate.check_gold_coordinate_conventions import collapse_stats_by_strand
+        from validate.evaluate_modbam_gold_sites import SiteStats
+
+        plus = SiteStats()
+        plus.add_coverage(0.5)
+        minus = SiteStats()
+        minus.add_coverage(None)
+        stats = {
+            ("chr1", 10, "+"): plus,
+            ("chr1", 10, "-"): minus,
+        }
+
+        collapsed = collapse_stats_by_strand(stats)
+
+        self.assertEqual(set(collapsed), {("chr1", 10, ".")})
+        self.assertEqual(collapsed[("chr1", 10, ".")].coverage, 2)
+        self.assertEqual(collapsed[("chr1", 10, ".")].mod_probs, [0.5])
+
     @unittest.skipUnless(find_spec("sklearn") is not None, "scikit-learn is not installed")
     def test_site_rows_and_metrics(self):
         from validate.evaluate_modbam_gold_sites import (

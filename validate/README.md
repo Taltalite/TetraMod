@@ -18,6 +18,9 @@ to models produced by `tetramod train`.
 - `evaluate_modbam_gold_sites.py`: aggregates MM/ML modified-base calls from an
   aligned modBAM into site-level m6A scores and compares them with gold BED or
   m6A-Atlas-style site tables.
+- `check_gold_coordinate_conventions.py`: sweeps gold-site coordinate shifts
+  and strand interpretations to diagnose 0/1-based or strand convention
+  mismatches before interpreting poor gold-site metrics as model failure.
 
 ## m6A Gold Site Evaluation
 
@@ -37,6 +40,25 @@ python validate/evaluate_modbam_gold_sites.py \
 
 The evaluator writes `site_level_predictions.tsv`, positive/negative site TSVs,
 `summary.json`, `summary.txt`, and PNG plots when matplotlib is available.
+
+To check coordinate and strand conventions, run:
+
+```bash
+python validate/check_gold_coordinate_conventions.py \
+  --bam tetramod_basecaller_test_fix.bam \
+  --gold-bed m6A_gold.hg38.bed \
+  --reference hg38.fa \
+  --output-dir val_res/m6A_gold_convention_check \
+  --mod-code a \
+  --canonical-base A \
+  --min-coverage 5
+```
+
+The diagnostic writes `coordinate_convention_summary.tsv` and `summary.json`.
+If a shifted or flipped convention shows a large jump in covered gold sites,
+reference-base compatibility, ROC AUC, PR AUC, or Top-N gold fraction, the gold
+coordinate/strand convention should be corrected before drawing model
+conclusions.
 
 The original `bonito-mixed/validate` directory also contains basecaller output
 debugging, POD5 inference, BAM comparison, and visualization scripts. Those are
