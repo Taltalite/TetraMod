@@ -13,11 +13,13 @@ to models produced by `tetramod train`.
   coverage.
 - `kmer_balanced_mod_report.py`: post-processes `mod_site_examples.tsv` from
   `evaluate_train_mod.py` into k-mer balanced binary modification metrics.
+- `compare_basecaller_bams.py`: compares `tetramod basecaller` and `bonito
+  basecaller` BAM/SAM outputs on the intersection of read ids.
 
 The original `bonito-mixed/validate` directory also contains basecaller output
 debugging, POD5 inference, BAM comparison, and visualization scripts. Those are
-not migrated here because they validate `basecaller_mod` outputs rather than
-the training checkpoint evaluation path.
+not migrated here because they are broader one-off debugging tools rather than
+the focused checkpoint and BAM comparison paths kept here.
 
 ## Bonito Dependency Boundary
 
