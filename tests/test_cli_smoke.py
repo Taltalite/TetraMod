@@ -68,6 +68,36 @@ class TetramodCliSmokeTest(unittest.TestCase):
         self.assertEqual(resolve_promote_stage({}, "control"), PROMOTE_STAGE_CONTROL)
         self.assertEqual(CONTROL_WARMUP_LOSS_PATH, "a_head_control_warmup_viterbi_bce")
 
+    def test_promote_control_eval_helpers(self):
+        from validate.evaluate_promote_control import (
+            DatasetSpec,
+            build_dataset_specs,
+            monotonicity_check,
+            parse_mix_dataset,
+        )
+
+        parsed = parse_mix_dataset("25:/tmp/mix25")
+        self.assertEqual(parsed.name, "mix_25")
+        self.assertEqual(parsed.ratio, 25.0)
+
+        class Args:
+            ivt_dir = "/tmp/ivt"
+            full_mod_dir = "/tmp/full"
+            mix_dataset = ["50:/tmp/mix50"]
+
+        specs = build_dataset_specs(Args())
+        self.assertEqual(
+            [(item.name, item.ratio) for item in specs],
+            [("ivt", 0.0), ("mix_50", 50.0), ("full_mod", 100.0)],
+        )
+
+        monotonic = monotonicity_check([
+            {"name": "ivt", "ratio": 0.0, "mean_pred_mod_prob": 0.1},
+            {"name": "mix_50", "ratio": 50.0, "mean_pred_mod_prob": 0.5},
+            {"name": "full_mod", "ratio": 100.0, "mean_pred_mod_prob": 0.9},
+        ])
+        self.assertTrue(monotonic["non_decreasing_by_mean_prob"])
+
     def test_basecaller_defaults_to_koi(self):
         from tetramod.cli.basecaller import argparser
 

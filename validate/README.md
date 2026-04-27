@@ -8,6 +8,10 @@ to models produced by `tetramod train`.
 - `evaluate_train_mod.py`: main checkpoint evaluator. It reports basecalling
   accuracy, modification-head metrics, target-axis projection coverage, TSV
   examples, JSON/text summaries, and optional plots.
+- `evaluate_promote_control.py`: small control-warmup evaluator for `train_promote`
+  and baseline checkpoints. It checks whether the A-head separates full-mod and
+  IVT, and whether mixed-ratio datasets show monotonic mean predicted m6A
+  probability.
 - `check_base_mod_alignment.py`: diagnostic checker for shared base/mod time
   axes, decoded base emission counts, and target-axis modification projection
   coverage.
@@ -64,6 +68,33 @@ The original `bonito-mixed/validate` directory also contains basecaller output
 debugging, POD5 inference, BAM comparison, and visualization scripts. Those are
 not migrated here because they are broader one-off debugging tools rather than
 the focused checkpoint and BAM comparison paths kept here.
+
+## Promoted Control Evaluation
+
+Example:
+
+```bash
+python validate/evaluate_promote_control.py \
+  /path/to/model_dir \
+  --ivt-dir /path/to/ivt_dataset \
+  --mix-dataset 25:/path/to/mix25_dataset \
+  --mix-dataset 50:/path/to/mix50_dataset \
+  --mix-dataset 75:/path/to/mix75_dataset \
+  --full-mod-dir /path/to/full_mod_dataset \
+  --dataset valid \
+  --valid-chunks 2000 \
+  --batchsize 32 \
+  --device cuda:0
+```
+
+The evaluator writes:
+
+- `dataset_metrics.tsv`
+- `summary.json`
+- `summary.txt`
+
+This path is intentionally small. It is designed to answer whether a checkpoint
+learned the control warm-up distinction before LLP or MIL are introduced.
 
 ## Bonito Dependency Boundary
 
