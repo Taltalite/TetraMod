@@ -10,16 +10,63 @@ class TetramodCliSmokeTest(unittest.TestCase):
         parser = build_parser()
         actions = [action for action in parser._actions if action.dest == "command"]
         self.assertEqual(len(actions), 1)
-        self.assertEqual(set(actions[0].choices), {"train", "basecaller"})
+        self.assertEqual(set(actions[0].choices), {"train", "train_promote", "basecaller"})
 
     def test_subcommand_help_parses_without_bonito_runtime_imports(self):
         from tetramod.cli import main
 
-        for command in ("train", "basecaller"):
+        for command in ("train", "train_promote", "basecaller"):
             with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
                 with self.assertRaises(SystemExit) as ctx:
                     main([command, "--help"])
             self.assertEqual(ctx.exception.code, 0)
+
+    def test_train_promote_defaults_to_a_head(self):
+        from tetramod.cli.train_promote import PROMOTE_HEAD_BASE, argparser
+
+        args = argparser().parse_args(["workdir", "--pretrained", "model_dir"])
+        self.assertEqual(args.promote_base, PROMOTE_HEAD_BASE)
+        self.assertIsNone(args.promote_stage)
+
+    def test_train_promote_restricts_model_to_a_head(self):
+        from tetramod.cli.train_promote import prepare_promote_config
+
+        config = {
+            "model": {
+                "mod_bases": ["A", "C", "G", "T"],
+                "mod_global_labels": [
+                    "canonical_A",
+                    "canonical_C",
+                    "canonical_G",
+                    "canonical_T",
+                    "m6A",
+                ],
+                "mod_head_defs": {
+                    "A": ["canonical_A", "m6A"],
+                    "C": ["canonical_C"],
+                    "G": ["canonical_G"],
+                    "T": ["canonical_T"],
+                },
+            }
+        }
+
+        promoted = prepare_promote_config(config)
+
+        self.assertEqual(promoted["model"]["mod_bases"], ["A"])
+        self.assertEqual(promoted["model"]["mod_head_defs"], {"A": ["canonical_A", "m6A"]})
+
+    def test_train_promote_control_stage_resolution_and_loss_path(self):
+        from tetramod.training_promote import (
+            CONTROL_WARMUP_LOSS_PATH,
+            PROMOTE_STAGE_CONTROL,
+            resolve_promote_stage,
+        )
+
+        config = {"training": {"promote_stage": "control"}}
+
+        self.assertEqual(resolve_promote_stage(config), PROMOTE_STAGE_CONTROL)
+        self.assertEqual(resolve_promote_stage({}, "control"), PROMOTE_STAGE_CONTROL)
+        self.assertEqual(CONTROL_WARMUP_LOSS_PATH, "a_head_control_warmup_viterbi_bce")
 
     def test_basecaller_defaults_to_koi(self):
         from tetramod.cli.basecaller import argparser

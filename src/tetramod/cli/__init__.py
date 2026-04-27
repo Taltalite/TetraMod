@@ -6,6 +6,7 @@ from tetramod import __version__
 
 _COMMANDS = {
     "train": "tetramod.cli.train",
+    "train_promote": "tetramod.cli.train_promote",
     "basecaller": "tetramod.cli.basecaller",
 }
 
