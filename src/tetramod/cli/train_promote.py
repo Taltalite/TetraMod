@@ -28,8 +28,11 @@ def _imports():
     from tetramod.train_mod_data import load_train_mod_data
     from tetramod.training_promote import (
         CONTROL_WARMUP_LOSS_PATH,
+        LLP_LOSS_PATH,
         PROMOTE_STAGE_CONTROL,
+        PROMOTE_STAGE_LLP,
         TrainerPromote,
+        resolve_llp_settings,
         resolve_promote_stage,
     )
     from tetramod.util import (
@@ -44,14 +47,17 @@ def _imports():
         "ComputeSettings": ComputeSettings,
         "CONTROL_WARMUP_LOSS_PATH": CONTROL_WARMUP_LOSS_PATH,
         "DataSettings": DataSettings,
+        "LLP_LOSS_PATH": LLP_LOSS_PATH,
         "ModelSetup": ModelSetup,
         "PROMOTE_STAGE_CONTROL": PROMOTE_STAGE_CONTROL,
+        "PROMOTE_STAGE_LLP": PROMOTE_STAGE_LLP,
         "STANDALONE_MOD_HEAD_MODE": STANDALONE_MOD_HEAD_MODE,
         "TrainerPromote": TrainerPromote,
         "init": init,
         "load_pretrained_weights": load_pretrained_weights,
         "load_symbol": load_symbol,
         "load_train_mod_data": load_train_mod_data,
+        "resolve_llp_settings": resolve_llp_settings,
         "resolve_promote_stage": resolve_promote_stage,
         "resolve_model_dir": resolve_model_dir,
         "toml": toml,
@@ -104,6 +110,13 @@ def main(args):
     config["__config_dir__"] = str(Path(args.config).resolve().parent)
     pretrained_config = load_pretrained_config(args.pretrained)
     promote_stage = deps["resolve_promote_stage"](config, args.promote_stage)
+    llp_settings = {}
+    if promote_stage == deps["PROMOTE_STAGE_LLP"]:
+        llp_settings = deps["resolve_llp_settings"](
+            config,
+            cli_proportion=args.llp_proportion,
+            cli_bag_size=args.llp_bag_size,
+        )
     pretrained_encoder = config.get("model", {}).get("pretrained_encoder")
     if pretrained_encoder is None:
         pretrained_encoder = pretrained_config.get("model", {}).get("encoder")
@@ -117,15 +130,17 @@ def main(args):
     config = merge_pretrained_runtime_config(config, pretrained_config)
     config = prepare_promote_config(config, promote_base=args.promote_base)
     validate_pretrained_runtime_config(config, pretrained_config)
+    loss_path = deps["LLP_LOSS_PATH"] if promote_stage == deps["PROMOTE_STAGE_LLP"] else deps["CONTROL_WARMUP_LOSS_PATH"]
 
     training_cfg = {
         **config.get("training", {}),
         **vars(args),
+        **llp_settings,
         "pwd": os.getcwd(),
         "mode": deps["STANDALONE_MOD_HEAD_MODE"],
         "pipeline": "promote",
         "promote_stage": promote_stage,
-        "loss_path": deps["CONTROL_WARMUP_LOSS_PATH"],
+        "loss_path": loss_path,
         "pretrained": args.pretrained,
         "pretrained_basecaller": args.pretrained,
         "pretrained_basecaller_dir": resolve_model_dir(args.pretrained),
@@ -187,6 +202,8 @@ def main(args):
         train_loader,
         valid_loader,
         promote_stage=promote_stage,
+        llp_proportion=training_cfg.get("llp_proportion"),
+        llp_bag_size=training_cfg.get("llp_bag_size"),
         use_amp=not args.no_amp,
         lr_scheduler_fn=lr_scheduler_fn,
         restore_optim=args.restore_optim,
@@ -248,7 +265,22 @@ def argparser():
     parser.add_argument(
         "--promote-stage",
         default=None,
-        choices=["control"],
+        choices=["control", "llp"],
         help="Promoted training stage. Defaults to config training.promote_stage or control.",
+    )
+    parser.add_argument(
+        "--llp-proportion",
+        default=None,
+        type=float,
+        help="Known modified proportion for LLP bags. Accepts a fraction in [0, 1] or percent in [0, 100].",
+    )
+    parser.add_argument(
+        "--llp-bag-size",
+        default=None,
+        type=int,
+        help=(
+            "LLP bag key grouping. 0 groups valid reads in each batch into one bag; "
+            "N>0 uses floor(sample_key / N)."
+        ),
     )
     return parser

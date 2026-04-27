@@ -163,6 +163,7 @@ def build_signal_order_sequence(query_sequence: str, sample_type: str, is_revers
 class TaskData:
     record_id: str
     pod5_read_id: str
+    run_id: str
     query_sequence: str
     sample_type: str
     is_reverse: bool
@@ -183,6 +184,7 @@ class TaskData:
     norm_strategy: str
     pa_mean: float
     pa_std: float
+    metadata_kmer: int
 
 
 @dataclass
@@ -190,6 +192,22 @@ class Sample:
     signal: np.ndarray
     label: np.ndarray
     label_len: int
+    record_id: str
+    pod5_read_id: str
+    run_id: str
+    contig: str
+    ref_start: int
+    ref_end: int
+    ref_strand: int
+    chunk_start: int
+    chunk_end: int
+    primary_site_key: str
+    primary_site_pos: int
+    kmer_context: str
+    motif_context: str
+    mean_qscore: float
+    mapping_accuracy: float
+    mapping_coverage: float
 
 
 class WorkerState:
@@ -201,6 +219,26 @@ class WorkerState:
 
 PARENT_POD5_LOOKUP: Dict[str, Tuple[str, int, int]] = {}
 PARENT_ALIGNER: Optional[mappy.Aligner] = None
+METADATA_STRING_FIELDS = (
+    "record_id",
+    "pod5_read_id",
+    "run_id",
+    "contig",
+    "primary_site_key",
+    "kmer_context",
+    "motif_context",
+)
+METADATA_NUMERIC_FIELDS = {
+    "ref_start": np.int64,
+    "ref_end": np.int64,
+    "ref_strand": np.int8,
+    "chunk_start": np.int64,
+    "chunk_end": np.int64,
+    "primary_site_pos": np.int64,
+    "mean_qscore": np.float32,
+    "mapping_accuracy": np.float32,
+    "mapping_coverage": np.float32,
+}
 
 
 def worker_init(
@@ -357,10 +395,12 @@ def build_task(read: pysam.AlignedSegment, args) -> Optional[TaskData]:
     split_parent = str(read.get_tag("pi")) if read.has_tag("pi") else None
     split_start = int(read.get_tag("sp")) if read.has_tag("sp") else 0
     pod5_read_id = split_parent if split_parent else read.query_name
+    run_id = args.run_id or (str(read.get_tag("RG")) if read.has_tag("RG") else "unknown")
 
     return TaskData(
         record_id=str(read.query_name),
         pod5_read_id=str(pod5_read_id),
+        run_id=str(run_id),
         query_sequence=query_sequence,
         sample_type=args.sample_type,
         is_reverse=bool(read.is_reverse),
@@ -381,6 +421,63 @@ def build_task(read: pysam.AlignedSegment, args) -> Optional[TaskData]:
         norm_strategy=str(args.norm_strategy),
         pa_mean=float(args.pa_mean),
         pa_std=float(args.pa_std),
+        metadata_kmer=int(args.metadata_kmer),
+    )
+
+
+def classify_m6a_motif(seq: str, center: int) -> str:
+    """
+    Coarse m6A motif label for balancing.
+
+    DRACH is evaluated on the target sequence around the candidate A:
+    D=[A/G/T], R=[A/G], A, C, H=[A/C/T].
+    """
+    seq = seq.upper()
+    if center < 2 or center + 2 >= len(seq):
+        return "edge"
+    window = seq[center - 2:center + 3]
+    if (
+        window[0] in {"A", "G", "T"}
+        and window[1] in {"A", "G"}
+        and window[2] == "A"
+        and window[3] == "C"
+        and window[4] in {"A", "C", "T"}
+    ):
+        return "DRACH"
+    return "non_DRACH"
+
+
+def centered_kmer(seq: str, center: int, k: int) -> str:
+    k = int(k)
+    if k <= 0 or k % 2 == 0:
+        raise ValueError(f"metadata_kmer must be a positive odd integer, got {k}")
+    flank = k // 2
+    if center < flank or center + flank >= len(seq):
+        return "edge"
+    return seq[center - flank:center + flank + 1].upper()
+
+
+def target_index_to_ref_pos(index: int, ref_len: int, mapping, sample_type: str) -> int:
+    oriented_index = (ref_len - 1 - index) if sample_type == "rna" else index
+    if mapping.strand == -1:
+        return int(mapping.r_en - 1 - oriented_index)
+    return int(mapping.r_st + oriented_index)
+
+
+def primary_a_site_metadata(target_seq: str, mapping, sample_type: str, kmer_size: int) -> tuple[str, int, str, str]:
+    a_positions = [idx for idx, base in enumerate(target_seq.upper()) if base == "A"]
+    if not a_positions:
+        return "no_A", -1, "no_A", "no_A"
+
+    center = (len(target_seq) - 1) / 2.0
+    target_idx = min(a_positions, key=lambda idx: abs(idx - center))
+    ref_pos = target_index_to_ref_pos(target_idx, len(target_seq), mapping, sample_type)
+    site_key = f"{mapping.ctg}:{ref_pos}:{mapping.strand}:A"
+    return (
+        site_key,
+        int(ref_pos),
+        centered_kmer(target_seq, target_idx, kmer_size),
+        classify_m6a_motif(target_seq, target_idx),
     )
 
 
@@ -505,11 +602,34 @@ def process_task(task: TaskData) -> Tuple[List[Sample], Dict[str, int]]:
             stats["chunks_too_long"] += 1
             continue
 
+        site_key, site_pos, kmer_context, motif_context = primary_a_site_metadata(
+            target_seq,
+            mapping,
+            task.sample_type,
+            task.metadata_kmer,
+        )
+
         samples.append(
             Sample(
                 signal=normalised_signal[win_start:win_end],
                 label=target.astype(np.uint8),
                 label_len=int(target.shape[0]),
+                record_id=task.record_id,
+                pod5_read_id=task.pod5_read_id,
+                run_id=task.run_id,
+                contig=str(mapping.ctg),
+                ref_start=int(mapping.r_st),
+                ref_end=int(mapping.r_en),
+                ref_strand=int(mapping.strand),
+                chunk_start=int(win_start),
+                chunk_end=int(win_end),
+                primary_site_key=site_key,
+                primary_site_pos=site_pos,
+                kmer_context=kmer_context,
+                motif_context=motif_context,
+                mean_qscore=float(task.mean_qscore) if task.mean_qscore is not None else float("nan"),
+                mapping_accuracy=float(accuracy),
+                mapping_coverage=float(coverage),
             )
         )
         stats["chunks_written"] += 1
@@ -542,18 +662,31 @@ def write_worker_samples(samples: List[Sample]) -> Optional[Dict[str, object]]:
         off_path = off_tmp.name
     with tempfile.NamedTemporaryFile(prefix="temp_len_", suffix=".npy", dir=temp_dir, delete=False) as len_tmp:
         len_path = len_tmp.name
+    with tempfile.NamedTemporaryFile(prefix="temp_meta_", suffix=".npz", dir=temp_dir, delete=False) as meta_tmp:
+        meta_path = meta_tmp.name
 
     np.save(sig_path, signals)
     np.save(lbl_path, labels_flat)
     np.save(off_path, offsets)
     np.save(len_path, lengths)
+    write_metadata_npz(meta_path, samples)
     return {
         "signals": sig_path,
         "labels": lbl_path,
         "offsets": off_path,
         "lengths": len_path,
+        "metadata": meta_path,
         "num_samples": int(signals.shape[0]),
     }
+
+
+def write_metadata_npz(path: str | Path, samples: Sequence[Sample]) -> None:
+    arrays = {}
+    for field in METADATA_STRING_FIELDS:
+        arrays[field] = np.asarray([getattr(sample, field) for sample in samples], dtype=str)
+    for field, dtype in METADATA_NUMERIC_FIELDS.items():
+        arrays[field] = np.asarray([getattr(sample, field) for sample in samples], dtype=dtype)
+    np.savez(path, **arrays)
 
 
 def process_task_batch(tasks: Sequence[TaskData], max_samples_per_file: int) -> Tuple[List[Dict[str, object]], Dict[str, int]]:
@@ -588,16 +721,19 @@ def flush_temp_chunk(chunk_id: int, chunk: List[Sample], temp_dir: Path, manifes
     lbl_path = temp_dir / f"temp_lbl_{chunk_id}.npy"
     off_path = temp_dir / f"temp_off_{chunk_id}.npy"
     len_path = temp_dir / f"temp_len_{chunk_id}.npy"
+    meta_path = temp_dir / f"temp_meta_{chunk_id}.npz"
     np.save(sig_path, signals)
     np.save(lbl_path, labels_flat)
     np.save(off_path, offsets)
     np.save(len_path, lengths)
+    write_metadata_npz(meta_path, chunk)
     manifest.append(
         {
             "signals": str(sig_path),
             "labels": str(lbl_path),
             "offsets": str(off_path),
             "lengths": str(len_path),
+            "metadata": str(meta_path),
             "num_samples": int(signals.shape[0]),
         }
     )
@@ -631,9 +767,12 @@ def close_memmap_array(array: np.ndarray) -> None:
         mmap_obj.close()
 
 
-def close_chunk_arrays(chunk_arrays: Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]) -> None:
+def close_chunk_arrays(chunk_arrays: Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, object]) -> None:
     for array in chunk_arrays:
-        close_memmap_array(array)
+        if hasattr(array, "close"):
+            array.close()
+        else:
+            close_memmap_array(array)
 
 
 def snapshot_hidden_temp_dirs(root: Path) -> set[str]:
@@ -693,7 +832,8 @@ def merge_chunks_to_final(
     lens_out = np.lib.format.open_memmap(output_dir / "reference_lengths.npy", mode="w+", dtype=np.uint16, shape=(total_samples,))
 
     starts = build_chunk_ranges(chunk_manifest)
-    chunk_cache: OrderedDict[int, Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]] = OrderedDict()
+    metadata_out = {field: [] for field in (*METADATA_STRING_FIELDS, *METADATA_NUMERIC_FIELDS.keys())}
+    chunk_cache: OrderedDict[int, Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, object]] = OrderedDict()
 
     def load_chunk_data(idx: int):
         if idx in chunk_cache:
@@ -708,6 +848,7 @@ def merge_chunks_to_final(
             np.load(info["labels"], mmap_mode="r"),
             np.load(info["offsets"], mmap_mode="r"),
             np.load(info["lengths"], mmap_mode="r"),
+            np.load(info["metadata"]),
         )
         return chunk_cache[idx]
 
@@ -721,16 +862,35 @@ def merge_chunks_to_final(
         for pos, global_index in enumerate(block_indices):
             chunk_idx = find_chunk_index(starts, int(global_index))
             local_index = int(global_index - starts[chunk_idx])
-            signals, labels, offsets, lengths_chunk = load_chunk_data(chunk_idx)
+            signals, labels, offsets, lengths_chunk, metadata = load_chunk_data(chunk_idx)
             block_signals[pos] = signals[local_index]
             label_len = int(lengths_chunk[local_index])
             label_start = int(offsets[local_index])
             block_refs[pos, :label_len] = labels[label_start:label_start + label_len]
+            for field in metadata_out:
+                metadata_out[field].append(metadata[field][local_index])
         chunks_out[out_start:out_end] = block_signals
         refs_out[out_start:out_end] = block_refs
         lens_out[out_start:out_end] = block_lengths
 
     del chunks_out, refs_out, lens_out
+    metadata_arrays = {}
+    for field in METADATA_STRING_FIELDS:
+        metadata_arrays[field] = np.asarray(metadata_out[field], dtype=str)
+    for field, dtype in METADATA_NUMERIC_FIELDS.items():
+        metadata_arrays[field] = np.asarray(metadata_out[field], dtype=dtype)
+    np.savez(output_dir / "metadata.npz", **metadata_arrays)
+
+    metadata_description = {
+        "primary_site_key": "Center-most A in the chunk target sequence, encoded as contig:ref_pos:strand:A.",
+        "kmer_context": "Centered k-mer around primary_site_key; edge means insufficient flank.",
+        "motif_context": "DRACH/non_DRACH/edge/no_A coarse m6A motif class around primary_site_key.",
+        "mean_qscore": "Dorado qs tag when available, else NaN.",
+        "mapping_accuracy": "Chunk-local minimap2 mlen / blen.",
+        "mapping_coverage": "Chunk-local query coverage.",
+    }
+    (output_dir / "metadata_fields.json").write_text(json.dumps(metadata_description, indent=2), encoding="utf-8")
+
     for chunk_arrays in chunk_cache.values():
         close_chunk_arrays(chunk_arrays)
     chunk_cache.clear()
@@ -740,6 +900,7 @@ def merge_chunks_to_final(
         os.remove(chunk_info["labels"])
         os.remove(chunk_info["offsets"])
         os.remove(chunk_info["lengths"])
+        os.remove(chunk_info["metadata"])
 
     return {
         "total_pre_typical_filter": int(lengths.shape[0]),
@@ -757,8 +918,10 @@ def write_summary(output_dir: Path, args, counters: Dict[str, int], merge_stats:
         "reference_fasta": str(Path(args.reference_fasta).resolve()),
         "output_dir": str(output_dir.resolve()),
         "sample_type": args.sample_type,
+        "run_id_override": args.run_id,
         "chunk_len": int(args.chunk_len),
         "overlap": int(args.overlap),
+        "metadata_kmer": int(args.metadata_kmer),
         "max_chunks": None if int(args.max_chunks) <= 0 else int(args.max_chunks),
         "min_accuracy": float(args.min_accuracy),
         "min_coverage": float(args.min_coverage),
@@ -797,6 +960,7 @@ def parse_args():
     parser.add_argument("--pod5-dir", required=True)
     parser.add_argument("--reference-fasta", required=True)
     parser.add_argument("--output-dir", required=True)
+    parser.add_argument("--run-id", default=None, help="Optional run identifier override; defaults to BAM RG tag or 'unknown'.")
     parser.add_argument("--sample-type", choices=["dna", "rna"], default="rna")
     parser.add_argument("--chunk-len", type=int, default=12000)
     parser.add_argument("--overlap", type=int, default=600)
@@ -813,6 +977,7 @@ def parse_args():
     parser.add_argument("--pa-mean", type=float, default=0.0)
     parser.add_argument("--pa-std", type=float, default=1.0)
     parser.add_argument("--mm2-preset", default="lr:hq", help="Minimap2 preset used for chunk-local realignment.")
+    parser.add_argument("--metadata-kmer", type=int, default=5, help="Odd k-mer size recorded around the primary A site.")
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--task-batch-size", type=int, default=DEFAULT_TASK_BATCH_SIZE)
     parser.add_argument("--max-pending-batches", type=int, default=DEFAULT_MAX_PENDING_BATCHES)
@@ -829,6 +994,8 @@ def main():
     tempfile.tempdir = "/tmp"
     args = parse_args()
     resolve_thresholds(args)
+    if args.metadata_kmer <= 0 or args.metadata_kmer % 2 == 0:
+        raise ValueError(f"--metadata-kmer must be a positive odd integer, got {args.metadata_kmer}")
     np.random.seed(args.seed)
     start_method = resolve_mp_start_method(args.mp_start_method)
     cwd = Path.cwd()

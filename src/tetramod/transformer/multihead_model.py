@@ -550,6 +550,7 @@ class MultiHeadModel(torch.nn.Module):
                 "flat_logits": torch.zeros((0, num_classes), device=device, dtype=torch.float32),
                 "flat_targets": torch.zeros((0,), device=device, dtype=torch.long),
                 "flat_global_targets": torch.zeros((0,), device=device, dtype=torch.long),
+                "flat_sample_indices": torch.zeros((0,), device=device, dtype=torch.long),
             }
         return projections
 
@@ -598,6 +599,10 @@ class MultiHeadModel(torch.nn.Module):
         }
         if extra:
             outputs["sample_keys"] = extra[0]
+        if len(extra) > 1:
+            outputs["bag_keys"] = extra[1]
+        if len(extra) > 2:
+            outputs["bag_targets"] = extra[2]
         return outputs
 
     def decode_batch(self, outputs):
@@ -657,6 +662,7 @@ class MultiHeadModel(torch.nn.Module):
         per_head_logits = {base: [] for base in self.mod_bases}
         per_head_targets = {base: [] for base in self.mod_bases}
         per_head_global_targets = {base: [] for base in self.mod_bases}
+        per_head_sample_indices = {base: [] for base in self.mod_bases}
         sample_records: List[Dict[str, object]] = []
         site_records: List[Dict[str, object]] = []
         remaining_site_slots = None if site_record_limit is None else max(int(site_record_limit), 0)
@@ -721,6 +727,9 @@ class MultiHeadModel(torch.nn.Module):
                             per_head_logits[head_name].append(selected_logits)
                             per_head_targets[head_name].append(selected_local_targets)
                             per_head_global_targets[head_name].append(selected_global_targets)
+                            per_head_sample_indices[head_name].append(
+                                torch.full_like(selected_local_targets, sample_idx, dtype=torch.long)
+                            )
                             cached_heads[head_name] = {
                                 "time_indices": selected_time_indices.detach().to("cpu"),
                                 "local_targets": selected_local_targets.detach().to("cpu"),
@@ -796,6 +805,9 @@ class MultiHeadModel(torch.nn.Module):
                     per_head_logits[head_name].append(selected_logits)
                     per_head_targets[head_name].append(local_targets)
                     per_head_global_targets[head_name].append(global_targets)
+                    per_head_sample_indices[head_name].append(
+                        torch.full_like(local_targets, sample_idx, dtype=torch.long)
+                    )
 
             sample_records.append(sample_record)
 
@@ -805,6 +817,7 @@ class MultiHeadModel(torch.nn.Module):
                 head_projections[head_name]["flat_logits"] = torch.cat(per_head_logits[head_name], dim=0)
                 head_projections[head_name]["flat_targets"] = torch.cat(per_head_targets[head_name], dim=0)
                 head_projections[head_name]["flat_global_targets"] = torch.cat(per_head_global_targets[head_name], dim=0)
+                head_projections[head_name]["flat_sample_indices"] = torch.cat(per_head_sample_indices[head_name], dim=0)
 
         return {
             "per_head": head_projections,
