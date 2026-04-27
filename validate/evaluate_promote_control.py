@@ -182,7 +182,7 @@ def evaluate_dataset(args, model, dataset_spec: DatasetSpec, output_dir: Path) -
     num_batches = len(loader)
     num_samples = 0
 
-    with torch.inference_mode():
+    with torch.no_grad():
         for batch in tqdm(loader, total=num_batches, ascii=True, ncols=100, desc=f"eval:{dataset_spec.name}"):
             data, targets, lengths, mod_targets, *extra = batch
             outputs = model(
