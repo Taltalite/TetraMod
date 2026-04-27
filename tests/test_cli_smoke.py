@@ -142,14 +142,51 @@ class TetramodCliSmokeTest(unittest.TestCase):
         read0 = torch.sigmoid(torch.tensor([0.0, 2.0])).mean()
         read1 = torch.sigmoid(torch.tensor([4.0]))
         bag_prob = torch.stack([read0, read1.squeeze(0)]).mean()
-        expected = torch.nn.functional.binary_cross_entropy(
-            bag_prob.clamp(1e-6, 1.0 - 1e-6),
-            torch.tensor(0.75),
-        )
+        expected = -(torch.tensor(0.75) * bag_prob.clamp(1e-6, 1.0 - 1e-6).log())
+        expected = expected - (torch.tensor(0.25) * (1.0 - bag_prob.clamp(1e-6, 1.0 - 1e-6)).log())
         self.assertTrue(torch.allclose(losses["llp_loss"], expected))
         self.assertTrue(torch.allclose(losses["total_loss"], expected * 2.0))
         self.assertEqual(losses["llp_num_bags"].item(), 1.0)
         self.assertEqual(losses["llp_num_reads"].item(), 2.0)
+
+    def test_promote_llp_loss_is_safe_under_autocast(self):
+        import torch
+
+        from tetramod.training_promote import LLPProportionLoss
+
+        class FakeModel:
+            mod_bases = ["A"]
+            mod_head_defs = {"A": ["canonical_A", "m6A"]}
+            standalone_mod_head = True
+            mod_loss_weight = 1.0
+
+            def __init__(self, logits):
+                self.logits = logits
+
+            def align_predictions_to_targets(self, outputs, targets, target_lengths, mod_targets):
+                return {
+                    "per_head": {
+                        "A": {
+                            "flat_logits": self.logits,
+                            "flat_targets": torch.zeros((2,), dtype=torch.long),
+                            "flat_sample_indices": torch.tensor([0, 1]),
+                        }
+                    }
+                }
+
+        logits = torch.tensor([[0.0, 1.0], [0.0, 2.0]], requires_grad=True)
+        criterion = LLPProportionLoss(FakeModel(logits), llp_proportion=0.5)
+        outputs = {"base_scores": torch.zeros((1, 2, 1)), "bag_keys": torch.tensor([1, 1])}
+        with torch.autocast("cpu", enabled=True):
+            losses = criterion(
+                outputs,
+                targets=torch.zeros((2, 1), dtype=torch.long),
+                target_lengths=torch.ones((2,), dtype=torch.long),
+                mod_targets=torch.zeros((2, 1), dtype=torch.long),
+            )
+        losses["total_loss"].backward()
+        self.assertTrue(torch.isfinite(losses["llp_loss"]))
+        self.assertIsNotNone(logits.grad)
 
     def test_synthetic_llp_controls_builder_smoke(self):
         import subprocess

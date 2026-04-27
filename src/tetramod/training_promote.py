@@ -54,6 +54,19 @@ def resolve_llp_settings(config, cli_proportion=None, cli_bag_size=None) -> dict
     return settings
 
 
+def binary_cross_entropy_on_probabilities(input_probs, targets):
+    """
+    BCE for already-aggregated probabilities.
+
+    PyTorch disallows F.binary_cross_entropy under autocast. LLP bag scores are
+    mean probabilities rather than logits, so compute the probability-space BCE
+    explicitly in fp32 while preserving gradients to the underlying logits.
+    """
+    probs = input_probs.to(dtype=torch.float32).clamp(1e-6, 1.0 - 1e-6)
+    targets = targets.to(device=probs.device, dtype=torch.float32)
+    return -(targets * probs.log() + (1.0 - targets) * (1.0 - probs).log()).mean()
+
+
 def validate_control_warmup_model(model) -> None:
     mod_bases = list(getattr(model, "mod_bases", []))
     if mod_bases != ["A"]:
@@ -225,7 +238,7 @@ class LLPProportionLoss:
                 device=bag_probs.device,
                 dtype=bag_probs.dtype,
             )
-            prop_loss = F.binary_cross_entropy(bag_probs.clamp(1e-6, 1.0 - 1e-6), bag_targets)
+            prop_loss = binary_cross_entropy_on_probabilities(bag_probs, bag_targets)
             num_bags = bag_probs.new_tensor(float(bag_probs.numel()))
             num_reads = read_probs.new_tensor(float(read_probs.numel()))
 
