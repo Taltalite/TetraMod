@@ -86,3 +86,15 @@ tetramod train -f /data/biolab-nvme-pcie2/lijy/curlcakes/m6A/tetramod_model/mini
     --chunks 30000 \
     --valid-chunks 2000 \
     --device cuda:0
+
+
+python validate/evaluate_promote_control.py \
+  /data/biolab-nvme-pcie2/lijy/curlcakes/m6A/tetramod_model/mini_run \
+  --output-dir /home/lijy/workspace/TetraMod/val_res/curlcakes_m6a_mini_run/promote/ \
+  --ivt-dir /data/biolab-nvme-pcie2/lijy/curlcakes/m6A/canonical/chunks \
+  --full-mod-dir /data/biolab-nvme-pcie2/lijy/curlcakes/m6A/mod_100/chunks \
+  --dataset valid \
+  --chunks 30000 \
+  --valid-chunks 2000 \
+  --batchsize 32 \
+  --device cuda:0
