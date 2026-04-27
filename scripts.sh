@@ -54,3 +54,49 @@ python validate/compare_basecaller_bams.py \
     --tetramod-bam /data/biolab-nvme-pcie2/lijy/m6A/dorado_rna004_sup/wt_PRJEB80229_open_data/tetramod_out/tetramod_basecaller_test_fix.bam \
     --bonito-bam /data/biolab-nvme-pcie2/lijy/m6A/dorado_rna004_sup/wt_PRJEB80229_open_data/bonito_bam/PAU05273_pass_fd81c83d_c90ac4b0_10.bam \
     --output-dir /home/lijy/workspace/TetraMod/val_res/rna004_m6a_mix_tetra/bam_compare_fix/
+
+python validate/visualize_basecaller_bam_compare.py \
+    --comparison-dir /home/lijy/workspace/TetraMod/val_res/rna004_m6a_mix_tetra/bam_compare_fix/ \
+    --output-dir /home/lijy/workspace/TetraMod/val_res/rna004_m6a_mix_tetra/bam_compare_fix_plots/
+
+
+python validate/evaluate_modbam_gold_sites.py \
+       --bam /data/biolab-nvme-pcie2/lijy/m6A/dorado_rna004_sup/wt_PRJEB80229_open_data/tetramod_out/tetramod_basecaller_test_fix.bam \
+       --gold-bed /data/biolab-nvme-pcie2/lijy/m6A/dorado_rna004_sup/human.hg38.m6A.result.col29.bed \
+       --reference /data/biolab-nvme-pcie2/lijy/HG002/hg38.fa \
+       --output-dir /home/lijy/workspace/TetraMod/val_res/rna004_m6a_mix_tetra/m6A_gold_eval \
+       --mod-code a \
+       --canonical-base A \
+       --min-coverage 5
+
+
+# 数据消融
+
+tetramod basecaller \
+    /data/biolab-nvme-pcie2/lijy/m6A/training_model/rna004_m6a_mix_only_largetest \
+    /data/biolab-nvme-pcie2/lijy/m6A/dorado_rna004_sup/wt_PRJEB80229_open_data/pod5/ \
+    --device cuda:0 \
+    --recursive \
+    --rna \
+    --reference /data/biolab-nvme-pcie2/lijy/HG002/hg38.fa \
+    > /data/biolab-nvme-pcie2/lijy/m6A/dorado_rna004_sup/wt_PRJEB80229_open_data/tetramod_out/tetramod_basecaller_largetest_fix.bam
+
+tetramod basecaller \
+    /data/biolab-nvme-pcie2/lijy/m6A/training_model/rna004_m6a_mix_only_largetest \
+    /data/biolab-nvme-pcie2/lijy/m6A/dorado_rna004_sup/mix/canonical_pod5/ \
+    --device cuda:0 \
+    --recursive \
+    --rna \
+    --reference /data/biolab-nvme-pcie2/lijy/HG002/hg38.fa \
+    > /data/biolab-nvme-pcie2/lijy/m6A/dorado_rna004_sup/wt_PRJEB80229_open_data/tetramod_out/tetramod_basecaller_canonical.bam
+
+
+
+python validate/check_gold_coordinate_conventions.py \
+    --bam /data/biolab-nvme-pcie2/lijy/m6A/dorado_rna004_sup/wt_PRJEB80229_open_data/tetramod_out/tetramod_basecaller_largetest_fix.bam \
+    --gold-bed /data/biolab-nvme-pcie2/lijy/m6A/dorado_rna004_sup/human.hg38.m6A.result.col29.bed \
+    --reference /data/biolab-nvme-pcie2/lijy/HG002/hg38.fa \
+    --output-dir /home/lijy/workspace/TetraMod/val_res/rna004_m6a_mix_tetra/m6A_gold_convention_check \
+    --mod-code a \
+    --canonical-base A \
+    --min-coverage 5
