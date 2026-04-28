@@ -1,5 +1,12 @@
 # AGENTS.md
 
+
+# Workflow Context
+
+This repository is developed locally inside Windows WSL2 with Codex. The remote Linux server is used mainly for GPU-heavy training, inference, and full-scale execution. Unless explicitly instructed otherwise, Codex should edit, inspect, and run lightweight checks only in the local WSL2 workspace, and assume that code will be synchronized to the remote server through Git/GitHub.
+
+Do not hard-code local or remote machine-specific paths, usernames, CUDA devices, proxy settings, or dataset locations. Prefer portable configuration via CLI arguments, config files, environment variables, or documented placeholders.
+
 ## Scope
 
 This repository is the only writable target.
