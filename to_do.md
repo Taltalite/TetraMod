@@ -248,3 +248,112 @@
   当前 Stage 1 的标签假设很强：0% = 所有 A 未修饰，100% = 所有 A 全 m6A。这只适合作为 supervised warm-up anchor，不要直接拿它声称 wild-type
   generalization。下一步最小安全动作是：确认这套 control 数据能稳定分开后，再用 ratio-IVT 或 synthetic ratio bags 进入 Stage 2 LLP
   calibration。
+
+
+---
+
+
+---
+
+
+是的，我建议你写一条新的、并行的数据集生成路径，专门用于这种 cc100 全修饰 RNA002 数据；但不要替换现有 create_dataset_dorado_ctc_like.py。
+
+  你的诊断结果已经说明：
+
+  move_span / (ns - ts) = 1.0
+
+  所以 ts/ns/mv 的 signal interval 解释是对的。
+
+  但：
+
+  identity median = 0.7503
+  identity 25% = 0.7346
+  identity 75% = 0.7682
+
+  这说明 cc100 的 basecall 对 reference 的错误率非常高。whole-read 还能靠长序列 map 上去，但脚本把 read 切成局部 100-200 bp 片段后再
+  remap，短片段 identity 太低，几乎必然失败。这就是为什么 map-ont、更长 chunk、sample-type dna 都救不回来。
+
+  你现在的判断是对的：现有生成方式贴近 bonito basecaller --save-ctc，适合作为 baseline-compatible 数据路径。但它有一个隐含前提：
+
+  basecalled chunk 子序列本身能可靠重新比对回 reference
+
+  cc0 满足这个前提，cc100 不满足。
+
+  我建议保留现有脚本作为：
+
+  remap-based / bonito-ctc-like dataset builder
+
+  然后新增一个并行模式，比如：
+
+  bam-alignment-driven dataset builder
+
+  核心区别是：不要对每个 chunk 的短 query 再跑 minimap2，而是直接使用 Dorado BAM 里已经存在的 whole-read CIGAR alignment。
+
+  新逻辑大概是：
+
+  POD5 signal
+  + Dorado mv/ts/ns tags
+  + BAM CIGAR query→reference mapping
+  → signal window
+  → query positions covered by this signal window
+  → reference positions from BAM aligned pairs
+  → reference sequence labels
+  → chunks.npy / references.npy / reference_lengths.npy / metadata.npz
+
+  也就是把当前失败的这一步：
+
+  mapping = next(aligner.map(query_seq, MD=True), None)
+
+  替换成：
+
+  use read.get_aligned_pairs() / CIGAR-derived query→reference map
+
+  但要非常谨慎加过滤，否则 Stage 1 会学到噪声：
+
+  read_identity >= 0.75 或 0.80
+  alignment_coverage >= 0.85
+  MAPQ >= 20 可先试
+  chunk_aligned_query_fraction >= 0.70
+  chunk_ref_span 合理
+  chunk 内至少有 A 位点
+
+  同时 metadata 里记录：
+
+  read_identity
+  read_mapq
+  chunk_aligned_fraction
+  source_mapping = "bam_cigar"
+
+  这样后面能明确报告：cc100 正样本来自 BAM-aligned rescue path，有 selection bias 风险。
+
+  我不建议把它伪装成原来的 bonito-like baseline 数据，因为这两条路径的语义不同：
+
+  当前脚本：
+  chunk 子序列必须独立 remap 成功，质量更严格，更接近 baseline-compatible 数据构建。
+
+  新脚本：
+  信任 whole-read BAM alignment，把低质量全修饰样本里可用的 aligned 区域救出来，适合 Stage 1 positive rescue。
+
+  Stage 1 最稳妥的路线会变成：
+
+  cc0:
+    先用现有 create_dataset_dorado_ctc_like.py 生成 canonical dataset
+
+  cc100:
+    用新的 BAM-CIGAR-driven builder 生成 full-mod dataset
+    加严格 read/chunk 过滤
+    报告 identity/MAPQ/coverage 分布
+
+  merge:
+    1:1 balanced merge
+    尽量做 qscore / kmer / site 分层检查
+
+  train_promote:
+    --promote-stage control
+
+  还有一个重要提醒：cc100 identity 中位数只有 0.75，说明即使用 BAM-CIGAR rescue，标签和 signal 的局部对应关系也会有噪声。它可以作为 Stage 1
+  warm-up 的正样本来源，但不能当作高质量 read-level truth。训练后必须用 evaluate_promote_control.py，并额外看 qscore / run artifact，避免模
+  型只是学到“cc100 低质量 read = m6A”。
+
+  结论：应该新增并行的数据集生成代码或 --mapping-source bam 模式来救 cc100；现有 bonito-like 路径继续保留，作为 cc0 和高质量数据的
+  baseline-compatible 路径。
