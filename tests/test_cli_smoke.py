@@ -711,6 +711,75 @@ scale_multiplier = 0.59
         create_dataset.resolve_signal_normalisation(default_args)
         self.assertEqual(default_args.norm_strategy, "from-bam")
 
+    def test_fast5_tar_to_pod5_converter_handles_single_read_fast5(self):
+        import json
+        import subprocess
+        import sys
+        import tarfile
+        import tempfile
+        import uuid
+
+        import h5py
+        import numpy as np
+        import pod5
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            fast5_path = root / "read.fast5"
+            read_id = str(uuid.uuid4())
+            with h5py.File(fast5_path, "w") as h5:
+                unique = h5.create_group("UniqueGlobalKey")
+                channel = unique.create_group("channel_id")
+                channel.attrs["channel_number"] = "42"
+                channel.attrs["digitisation"] = 8192.0
+                channel.attrs["offset"] = 10.0
+                channel.attrs["range"] = 1467.6
+                channel.attrs["sampling_rate"] = 4000
+                tracking = unique.create_group("tracking_id")
+                tracking.attrs["run_id"] = "run1"
+                tracking.attrs["exp_start_time"] = "2020-01-01T00:00:00Z"
+                tracking.attrs["protocol_start_time"] = "2020-01-01T00:00:00Z"
+                tracking.attrs["protocol_run_id"] = "proto1"
+                tracking.attrs["sample_id"] = "sample1"
+                context = unique.create_group("context_tags")
+                context.attrs["sequencing_kit"] = "SQK-RNA002"
+                read = h5.create_group("Raw").create_group("Reads").create_group("Read_1")
+                read.attrs["read_id"] = read_id
+                read.attrs["read_number"] = 1
+                read.attrs["start_time"] = 0
+                read.attrs["start_mux"] = 1
+                read.attrs["median_before"] = 80.0
+                read.create_dataset("Signal", data=np.arange(10, dtype=np.int16))
+
+            archive_path = root / "RNAAB089716.fast5.tar.gz.4"
+            with tarfile.open(archive_path, "w:gz") as archive:
+                archive.add(fast5_path, arcname="read.fast5")
+            output_dir = root / "pod5"
+
+            subprocess.run(
+                [
+                    sys.executable,
+                    "gen_data/convert_fast5_tar_to_pod5.py",
+                    str(archive_path),
+                    "--output-dir",
+                    str(output_dir),
+                ],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+
+            output_path = output_dir / "RNAAB089716.part4.pod5"
+            with pod5.Reader(output_path) as reader:
+                records = list(reader.reads())
+            self.assertEqual(len(records), 1)
+            self.assertEqual(str(records[0].read_id), read_id)
+
+            summary = json.loads((output_dir / "fast5_to_pod5_summary.json").read_text(encoding="utf-8"))
+            self.assertEqual(summary["inputs"][0]["observed_pod5_reads"], 1)
+            self.assertEqual(summary["inputs"][0]["failed_files"], [])
+
     def test_promote_control_eval_helpers(self):
         from validate.evaluate_promote_control import (
             DatasetSpec,
