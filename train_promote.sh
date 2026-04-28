@@ -98,3 +98,57 @@ python validate/evaluate_promote_control.py \
   --valid-chunks 2000 \
   --batchsize 32 \
   --device cuda:0
+
+
+# stage LLP
+
+python gen_data/build_synthetic_llp_from_controls.py \
+    --full-mod-bam /data/biolab-nvme-pcie2/lijy/curlcakes/m6A/mod_100/dorado_bam/dorado_rnasup520.bam \
+    --full-mod-pod5-dir /data/biolab-nvme-pcie2/lijy/curlcakes/m6A/mod_100/pod5 \
+    --canonical-bam /data/biolab-nvme-pcie2/lijy/curlcakes/m6A/canonical/dorado_bam/dorado_rnasup520.bam \
+    --canonical-pod5-dir /data/biolab-nvme-pcie2/lijy/curlcakes/m6A/canonical/pod5 \
+    --reference-fasta /data/biolab-nvme-pcie2/lijy/curlcakes/curlcake_constructs_EcoRV_BamHI_digestion.fasta \
+    --work-dir /data/biolab-nvme-pcie2/lijy/curlcakes/llp_work \
+    --output-dir /data/biolab-nvme-pcie2/lijy/curlcakes/m6A/mix/llp \
+    --full-mod-run-id fullmod_run1 \
+    --canonical-run-id canonical_run1 \
+    --ratios 0,25,50,75,100 \
+    --bag-size 20 \
+    --bags-per-stratum 1 \
+    --allow-replacement \
+    --heldout-mode leave-site \
+    --leave-site-fraction 0.1 \
+    --sample-type rna \
+    --chunk-len 12000 \
+    --overlap 600 \
+    --filter-preset relaxed \
+    --norm-strategy from-bam \
+    --metadata-kmer 5 \
+    --workers 8 \
+    --seed 114514
+
+
+tetramod train_promote -f /data/biolab-nvme-pcie2/lijy/curlcakes/m6A/tetramod_model/llp_run1 \
+    --directory /data/biolab-nvme-pcie2/lijy/curlcakes/m6A/mix/llp \
+    --config /home/lijy/workspace/TetraMod/src/tetramod/models/configs/multihead_transformer.toml \
+    --pretrained /data/biolab-nvme-pcie2/lijy/bonito_models/rna004_130bps_sup@v5.2.0 \
+    --promote-stage llp \
+    --promote-base A \
+    --epochs 20 \
+    --batch 20 \
+    --grad-accum-split 1 \
+    --lr 5e-5 \
+    --chunks 167300 \
+    --valid-chunks 20500 \
+    --profile-chunks 50000 \
+    --device cuda:0 \
+    > /home/lijy/workspace/TetraMod/log/train_log/rna004_curlcakes_m6a_llp_run1.log 2>&1
+
+#  然后验证：
+
+python validate/evaluate_llp_bags.py /data/biolab-nvme-pcie2/lijy/curlcakes/m6A/tetramod_model/llp_run1 \
+    --directory /data/biolab-nvme-pcie2/lijy/curlcakes/m6A/mix/llp \
+    --dataset valid \
+    --output-dir /home/lijy/workspace/TetraMod/val_res/llp_run1 \
+    --batchsize 20 \
+    --device cuda:0
