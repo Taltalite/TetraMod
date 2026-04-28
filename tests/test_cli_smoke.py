@@ -51,11 +51,20 @@ class TetramodCliSmokeTest(unittest.TestCase):
                 "25",
                 "--llp-bag-size",
                 "8",
+                "--llp-loss",
+                "huber",
+                "--llp-tolerance",
+                "0.05",
+                "--llp-huber-delta",
+                "0.1",
             ]
         )
         self.assertEqual(args.promote_stage, "llp")
         self.assertEqual(args.llp_proportion, 25.0)
         self.assertEqual(args.llp_bag_size, 8)
+        self.assertEqual(args.llp_loss, "huber")
+        self.assertEqual(args.llp_tolerance, 0.05)
+        self.assertEqual(args.llp_huber_delta, 0.1)
 
     def test_train_promote_restricts_model_to_a_head(self):
         from tetramod.cli.train_promote import prepare_promote_config
@@ -90,6 +99,9 @@ class TetramodCliSmokeTest(unittest.TestCase):
             LLP_LOSS_PATH,
             PROMOTE_STAGE_CONTROL,
             PROMOTE_STAGE_LLP,
+            DEFAULT_LLP_HUBER_DELTA,
+            DEFAULT_LLP_LOSS,
+            DEFAULT_LLP_TOLERANCE,
             normalize_llp_proportion,
             resolve_llp_settings,
             resolve_promote_stage,
@@ -101,13 +113,32 @@ class TetramodCliSmokeTest(unittest.TestCase):
         self.assertEqual(resolve_promote_stage({}, "control"), PROMOTE_STAGE_CONTROL)
         self.assertEqual(resolve_promote_stage({}, "llp"), PROMOTE_STAGE_LLP)
         self.assertEqual(CONTROL_WARMUP_LOSS_PATH, "a_head_control_warmup_viterbi_bce")
-        self.assertEqual(LLP_LOSS_PATH, "a_head_llp_mean_pool_proportion_bce")
+        self.assertEqual(LLP_LOSS_PATH, "a_head_llp_mean_pool_proportion")
         self.assertEqual(normalize_llp_proportion(25), 0.25)
         self.assertEqual(
             resolve_llp_settings({"training": {"llp_proportion": 0.5, "llp_bag_size": 4}}),
-            {"llp_proportion": 0.5, "llp_bag_size": 4},
+            {
+                "llp_proportion": 0.5,
+                "llp_bag_size": 4,
+                "llp_loss": DEFAULT_LLP_LOSS,
+                "llp_tolerance": DEFAULT_LLP_TOLERANCE,
+                "llp_huber_delta": DEFAULT_LLP_HUBER_DELTA,
+            },
         )
-        self.assertEqual(resolve_llp_settings({"training": {"llp_bag_size": 4}}), {"llp_bag_size": 4})
+        self.assertEqual(
+            resolve_llp_settings(
+                {"training": {"llp_bag_size": 4}},
+                cli_loss="mse",
+                cli_tolerance=0.05,
+                cli_huber_delta=0.1,
+            ),
+            {
+                "llp_bag_size": 4,
+                "llp_loss": "mse",
+                "llp_tolerance": 0.05,
+                "llp_huber_delta": 0.1,
+            },
+        )
 
     def test_promote_can_extract_legacy_rna002_encoder_config(self):
         from tetramod.cli.train import (
@@ -235,6 +266,103 @@ class TetramodCliSmokeTest(unittest.TestCase):
         self.assertTrue(torch.allclose(losses["total_loss"], expected * 2.0))
         self.assertEqual(losses["llp_num_bags"].item(), 1.0)
         self.assertEqual(losses["llp_num_reads"].item(), 2.0)
+        self.assertIn("llp_bag_mae", losses)
+        self.assertIn("llp_bag_rmse", losses)
+        self.assertIn("llp_bag_bias", losses)
+        self.assertIn("llp_bag_corr", losses)
+
+    def test_promote_llp_relaxed_loss_zeros_inside_tolerance(self):
+        import torch
+
+        from tetramod.training_promote import LLPProportionLoss
+
+        class FakeModel:
+            mod_bases = ["A"]
+            mod_head_defs = {"A": ["canonical_A", "m6A"]}
+            standalone_mod_head = True
+            mod_loss_weight = 1.0
+
+            def __init__(self, logits):
+                self.logits = logits
+
+            def align_predictions_to_targets(self, outputs, targets, target_lengths, mod_targets):
+                return {
+                    "per_head": {
+                        "A": {
+                            "flat_logits": self.logits,
+                            "flat_targets": torch.zeros((2,), dtype=torch.long),
+                            "flat_sample_indices": torch.tensor([0, 1]),
+                        }
+                    }
+                }
+
+        logits = torch.tensor([[0.0, 0.0], [0.0, 0.0]], requires_grad=True)
+        criterion = LLPProportionLoss(
+            FakeModel(logits),
+            llp_proportion=0.55,
+            llp_loss="mse",
+            llp_tolerance=0.1,
+        )
+        outputs = {"base_scores": torch.zeros((1, 2, 1)), "bag_keys": torch.tensor([7, 7])}
+
+        losses = criterion(
+            outputs,
+            targets=torch.zeros((2, 1), dtype=torch.long),
+            target_lengths=torch.ones((2,), dtype=torch.long),
+            mod_targets=torch.zeros((2, 1), dtype=torch.long),
+        )
+
+        self.assertTrue(torch.allclose(losses["llp_loss"], torch.tensor(0.0)))
+        self.assertTrue(torch.allclose(losses["llp_bag_mae"], torch.tensor(0.05)))
+        self.assertTrue(torch.allclose(losses["llp_mean_bag_prob"], torch.tensor(0.5)))
+        self.assertTrue(torch.allclose(losses["llp_mean_bag_target"], torch.tensor(0.55)))
+
+    def test_promote_llp_huber_uses_relaxed_boundary_outside_tolerance(self):
+        import torch
+        import torch.nn.functional as F
+
+        from tetramod.training_promote import LLPProportionLoss
+
+        class FakeModel:
+            mod_bases = ["A"]
+            mod_head_defs = {"A": ["canonical_A", "m6A"]}
+            standalone_mod_head = True
+            mod_loss_weight = 1.0
+
+            def __init__(self, logits):
+                self.logits = logits
+
+            def align_predictions_to_targets(self, outputs, targets, target_lengths, mod_targets):
+                return {
+                    "per_head": {
+                        "A": {
+                            "flat_logits": self.logits,
+                            "flat_targets": torch.zeros((2,), dtype=torch.long),
+                            "flat_sample_indices": torch.tensor([0, 1]),
+                        }
+                    }
+                }
+
+        logits = torch.tensor([[0.0, 2.0], [0.0, 2.0]], requires_grad=True)
+        criterion = LLPProportionLoss(
+            FakeModel(logits),
+            llp_proportion=0.4,
+            llp_loss="huber",
+            llp_tolerance=0.05,
+            llp_huber_delta=0.1,
+        )
+        outputs = {"base_scores": torch.zeros((1, 2, 1)), "bag_keys": torch.tensor([3, 3])}
+
+        losses = criterion(
+            outputs,
+            targets=torch.zeros((2, 1), dtype=torch.long),
+            target_lengths=torch.ones((2,), dtype=torch.long),
+            mod_targets=torch.zeros((2, 1), dtype=torch.long),
+        )
+
+        bag_prob = torch.sigmoid(torch.tensor(2.0))
+        expected = F.huber_loss(bag_prob, torch.tensor(0.45), delta=0.1)
+        self.assertTrue(torch.allclose(losses["llp_loss"], expected))
 
     def test_promote_llp_loss_is_safe_under_autocast(self):
         import torch

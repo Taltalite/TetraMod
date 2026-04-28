@@ -439,6 +439,9 @@ class TrainerMod:
                 parts.append(f"mod_loss={val_mod_loss:.4f}")
             if val_total_loss is not None:
                 parts.append(f"total_loss={val_total_loss:.4f}")
+            for key in ("llp_bag_mae", "llp_bag_rmse", "llp_bag_bias", "llp_bag_corr"):
+                if key in val_losses:
+                    parts.append(f"{key}={val_losses[key]:.4f}")
             parts.append(f"mean_acc={val_mean:.3f}% median_acc={val_median:.3f}%")
             print("[epoch {}] directory={} {}".format(epoch, workdir, " ".join(parts)))
 
@@ -448,7 +451,7 @@ class TrainerMod:
                 train_mod_loss = train_losses.get("mod_loss", None)
                 train_total_loss = train_losses.get("total_loss", None)
                 val_base_loss = val_losses.get("base_loss", None)
-                training_log.append({
+                base_row = {
                     "time": datetime.today(),
                     "epoch": epoch,
                     "train_loss": train_loss,
@@ -462,5 +465,13 @@ class TrainerMod:
                     "val_total_loss": val_total_loss,
                     "val_mean": val_mean,
                     "val_median": val_median,
-                })
+                }
+                base_metric_keys = {"loss", "base_loss", "mod_loss", "total_loss"}
+                for key, value in train_losses.items():
+                    if key not in base_metric_keys:
+                        base_row[f"train_{key}"] = value
+                for key, value in val_losses.items():
+                    if key not in base_metric_keys:
+                        base_row[f"val_{key}"] = value
+                training_log.append(base_row)
 

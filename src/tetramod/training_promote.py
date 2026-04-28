@@ -13,8 +13,15 @@ from tetramod.training_mod import TrainerMod
 PROMOTE_STAGE_CONTROL = "control"
 PROMOTE_STAGE_LLP = "llp"
 CONTROL_WARMUP_LOSS_PATH = "a_head_control_warmup_viterbi_bce"
-LLP_LOSS_PATH = "a_head_llp_mean_pool_proportion_bce"
+LLP_LOSS_PATH = "a_head_llp_mean_pool_proportion"
 DEFAULT_LLP_BAG_SIZE = 0
+LLP_LOSS_BCE = "bce"
+LLP_LOSS_MSE = "mse"
+LLP_LOSS_HUBER = "huber"
+LLP_LOSS_CHOICES = (LLP_LOSS_BCE, LLP_LOSS_MSE, LLP_LOSS_HUBER)
+DEFAULT_LLP_LOSS = LLP_LOSS_BCE
+DEFAULT_LLP_TOLERANCE = 0.0
+DEFAULT_LLP_HUBER_DELTA = 0.05
 
 
 def resolve_promote_stage(config, cli_stage: str | None = None) -> str:
@@ -40,21 +47,56 @@ def normalize_llp_proportion(proportion) -> float:
     return value
 
 
-def resolve_llp_settings(config, cli_proportion=None, cli_bag_size=None) -> dict:
+def normalize_llp_loss_name(value) -> str:
+    loss_name = str(value or DEFAULT_LLP_LOSS).strip().lower()
+    if loss_name not in LLP_LOSS_CHOICES:
+        raise ValueError(f"LLP loss must be one of {LLP_LOSS_CHOICES}, got {value!r}")
+    return loss_name
+
+
+def normalize_nonnegative_float(value, *, name: str) -> float:
+    result = float(value)
+    if result < 0.0:
+        raise ValueError(f"{name} must be >= 0, got {value!r}")
+    return result
+
+
+def resolve_llp_settings(
+    config,
+    cli_proportion=None,
+    cli_bag_size=None,
+    cli_loss=None,
+    cli_tolerance=None,
+    cli_huber_delta=None,
+) -> dict:
     training_cfg = config.get("training", {})
     proportion = cli_proportion if cli_proportion is not None else training_cfg.get("llp_proportion")
     bag_size = cli_bag_size if cli_bag_size is not None else training_cfg.get("llp_bag_size", DEFAULT_LLP_BAG_SIZE)
+    loss_name = cli_loss if cli_loss is not None else training_cfg.get("llp_loss", DEFAULT_LLP_LOSS)
+    tolerance = cli_tolerance if cli_tolerance is not None else training_cfg.get("llp_tolerance", DEFAULT_LLP_TOLERANCE)
+    huber_delta = (
+        cli_huber_delta
+        if cli_huber_delta is not None
+        else training_cfg.get("llp_huber_delta", DEFAULT_LLP_HUBER_DELTA)
+    )
     bag_size = int(bag_size)
     if bag_size < 0:
         raise ValueError(f"LLP bag size must be >= 0, got {bag_size}")
 
-    settings = {"llp_bag_size": bag_size}
+    settings = {
+        "llp_bag_size": bag_size,
+        "llp_loss": normalize_llp_loss_name(loss_name),
+        "llp_tolerance": normalize_nonnegative_float(tolerance, name="LLP tolerance"),
+        "llp_huber_delta": normalize_nonnegative_float(huber_delta, name="LLP Huber delta"),
+    }
+    if settings["llp_loss"] == LLP_LOSS_HUBER and settings["llp_huber_delta"] == 0.0:
+        raise ValueError("LLP Huber delta must be > 0.")
     if proportion is not None:
         settings["llp_proportion"] = normalize_llp_proportion(proportion)
     return settings
 
 
-def binary_cross_entropy_on_probabilities(input_probs, targets):
+def binary_cross_entropy_on_probabilities(input_probs, targets, weights=None):
     """
     BCE for already-aggregated probabilities.
 
@@ -64,7 +106,64 @@ def binary_cross_entropy_on_probabilities(input_probs, targets):
     """
     probs = input_probs.to(dtype=torch.float32).clamp(1e-6, 1.0 - 1e-6)
     targets = targets.to(device=probs.device, dtype=torch.float32)
-    return -(targets * probs.log() + (1.0 - targets) * (1.0 - probs).log()).mean()
+    per_item_loss = -(targets * probs.log() + (1.0 - targets) * (1.0 - probs).log())
+    if weights is not None:
+        per_item_loss = per_item_loss * weights.to(device=probs.device, dtype=torch.float32)
+    return per_item_loss.mean()
+
+
+def relaxed_target_interval(input_probs, targets, tolerance: float):
+    targets = targets.to(device=input_probs.device, dtype=torch.float32)
+    if tolerance <= 0.0:
+        return targets, torch.ones_like(targets, dtype=torch.float32)
+
+    probs = input_probs.detach().to(dtype=torch.float32)
+    lower = (targets - float(tolerance)).clamp(0.0, 1.0)
+    upper = (targets + float(tolerance)).clamp(0.0, 1.0)
+    active = (probs < lower) | (probs > upper)
+    return torch.minimum(torch.maximum(probs, lower), upper), active.to(dtype=torch.float32)
+
+
+def llp_proportion_loss(input_probs, targets, *, loss_name: str, tolerance: float, huber_delta: float):
+    effective_targets, active_weights = relaxed_target_interval(input_probs, targets, tolerance)
+    probs = input_probs.to(dtype=torch.float32)
+    if loss_name == LLP_LOSS_BCE:
+        return binary_cross_entropy_on_probabilities(probs, effective_targets, weights=active_weights)
+    if loss_name == LLP_LOSS_MSE:
+        return F.mse_loss(probs, effective_targets)
+    if loss_name == LLP_LOSS_HUBER:
+        return F.huber_loss(probs, effective_targets, delta=float(huber_delta))
+    raise ValueError(f"Unsupported LLP loss: {loss_name!r}")
+
+
+def bag_level_metrics(bag_probs, bag_targets):
+    probs = bag_probs.detach().to(dtype=torch.float32)
+    targets = bag_targets.detach().to(device=probs.device, dtype=torch.float32)
+    errors = probs - targets
+    mae = errors.abs().mean()
+    rmse = torch.sqrt((errors.square()).mean())
+    bias = errors.mean()
+    mean_prob = probs.mean()
+    mean_target = targets.mean()
+    if probs.numel() < 2:
+        corr = probs.new_zeros(())
+    else:
+        centered_probs = probs - mean_prob
+        centered_targets = targets - mean_target
+        denom = torch.sqrt(centered_probs.square().sum() * centered_targets.square().sum())
+        corr = torch.where(
+            denom > 0,
+            (centered_probs * centered_targets).sum() / denom.clamp_min(1e-12),
+            probs.new_zeros(()),
+        )
+    return {
+        "llp_bag_mae": mae,
+        "llp_bag_rmse": rmse,
+        "llp_bag_bias": bias,
+        "llp_bag_corr": corr,
+        "llp_mean_bag_prob": mean_prob,
+        "llp_mean_bag_target": mean_target,
+    }
 
 
 def validate_control_warmup_model(model) -> None:
@@ -136,13 +235,27 @@ class LLPProportionLoss:
     key using integer grouping, then optimized against a known bag proportion.
     """
 
-    def __init__(self, model, *, llp_proportion, llp_bag_size=DEFAULT_LLP_BAG_SIZE):
+    def __init__(
+        self,
+        model,
+        *,
+        llp_proportion,
+        llp_bag_size=DEFAULT_LLP_BAG_SIZE,
+        llp_loss=DEFAULT_LLP_LOSS,
+        llp_tolerance=DEFAULT_LLP_TOLERANCE,
+        llp_huber_delta=DEFAULT_LLP_HUBER_DELTA,
+    ):
         validate_control_warmup_model(model)
         self.model = model
         self.llp_proportion = None if llp_proportion is None else normalize_llp_proportion(llp_proportion)
         self.llp_bag_size = int(llp_bag_size)
         if self.llp_bag_size < 0:
             raise ValueError(f"LLP bag size must be >= 0, got {self.llp_bag_size}")
+        self.llp_loss = normalize_llp_loss_name(llp_loss)
+        self.llp_tolerance = normalize_nonnegative_float(llp_tolerance, name="LLP tolerance")
+        self.llp_huber_delta = normalize_nonnegative_float(llp_huber_delta, name="LLP Huber delta")
+        if self.llp_loss == LLP_LOSS_HUBER and self.llp_huber_delta == 0.0:
+            raise ValueError("LLP Huber delta must be > 0.")
         self.loss_path = LLP_LOSS_PATH
         self.promote_stage = PROMOTE_STAGE_LLP
 
@@ -225,6 +338,14 @@ class LLPProportionLoss:
             prop_loss = base_scores.new_zeros(())
             num_bags = base_scores.new_zeros(())
             num_reads = base_scores.new_zeros(())
+            metrics = {
+                "llp_bag_mae": base_scores.new_zeros(()),
+                "llp_bag_rmse": base_scores.new_zeros(()),
+                "llp_bag_bias": base_scores.new_zeros(()),
+                "llp_bag_corr": base_scores.new_zeros(()),
+                "llp_mean_bag_prob": base_scores.new_zeros(()),
+                "llp_mean_bag_target": base_scores.new_zeros(()),
+            }
         else:
             bag_keys = self._bag_keys(outputs, read_indices)
             _, inverse = torch.unique(bag_keys, sorted=True, return_inverse=True)
@@ -238,7 +359,14 @@ class LLPProportionLoss:
                 device=bag_probs.device,
                 dtype=bag_probs.dtype,
             )
-            prop_loss = binary_cross_entropy_on_probabilities(bag_probs, bag_targets)
+            prop_loss = llp_proportion_loss(
+                bag_probs,
+                bag_targets,
+                loss_name=self.llp_loss,
+                tolerance=self.llp_tolerance,
+                huber_delta=self.llp_huber_delta,
+            )
+            metrics = bag_level_metrics(bag_probs, bag_targets)
             num_bags = bag_probs.new_tensor(float(bag_probs.numel()))
             num_reads = read_probs.new_tensor(float(read_probs.numel()))
 
@@ -248,9 +376,12 @@ class LLPProportionLoss:
             "base_loss": base_loss,
             "mod_loss": prop_loss,
             "llp_loss": prop_loss,
+            "llp_loss_mode_id": base_scores.new_tensor(float(LLP_LOSS_CHOICES.index(self.llp_loss))),
+            "llp_tolerance": base_scores.new_tensor(float(self.llp_tolerance)),
             "llp_num_bags": num_bags,
             "llp_num_reads": num_reads,
             "total_loss": total_loss,
+            **metrics,
         }
 
 
@@ -274,6 +405,9 @@ class TrainerPromote(TrainerMod):
         criterion=None,
         llp_proportion=None,
         llp_bag_size=DEFAULT_LLP_BAG_SIZE,
+        llp_loss=DEFAULT_LLP_LOSS,
+        llp_tolerance=DEFAULT_LLP_TOLERANCE,
+        llp_huber_delta=DEFAULT_LLP_HUBER_DELTA,
         **kwargs,
     ):
         promote_stage = str(promote_stage).strip().lower()
@@ -292,6 +426,9 @@ class TrainerPromote(TrainerMod):
                 model,
                 llp_proportion=llp_proportion,
                 llp_bag_size=llp_bag_size,
+                llp_loss=llp_loss,
+                llp_tolerance=llp_tolerance,
+                llp_huber_delta=llp_huber_delta,
             )
         self.promote_stage = promote_stage
         self.loss_path = getattr(promote_loss, "loss_path", CONTROL_WARMUP_LOSS_PATH)

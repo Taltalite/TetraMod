@@ -29,6 +29,7 @@ def _imports():
     from tetramod.train_mod_data import load_train_mod_data
     from tetramod.training_promote import (
         CONTROL_WARMUP_LOSS_PATH,
+        LLP_LOSS_CHOICES,
         LLP_LOSS_PATH,
         PROMOTE_STAGE_CONTROL,
         PROMOTE_STAGE_LLP,
@@ -48,6 +49,7 @@ def _imports():
         "ComputeSettings": ComputeSettings,
         "CONTROL_WARMUP_LOSS_PATH": CONTROL_WARMUP_LOSS_PATH,
         "DataSettings": DataSettings,
+        "LLP_LOSS_CHOICES": LLP_LOSS_CHOICES,
         "LLP_LOSS_PATH": LLP_LOSS_PATH,
         "ModelSetup": ModelSetup,
         "PROMOTE_STAGE_CONTROL": PROMOTE_STAGE_CONTROL,
@@ -117,6 +119,9 @@ def main(args):
             config,
             cli_proportion=args.llp_proportion,
             cli_bag_size=args.llp_bag_size,
+            cli_loss=args.llp_loss,
+            cli_tolerance=args.llp_tolerance,
+            cli_huber_delta=args.llp_huber_delta,
         )
     pretrained_encoder = config.get("model", {}).get("pretrained_encoder")
     if pretrained_encoder is None:
@@ -205,6 +210,9 @@ def main(args):
         promote_stage=promote_stage,
         llp_proportion=training_cfg.get("llp_proportion"),
         llp_bag_size=training_cfg.get("llp_bag_size"),
+        llp_loss=training_cfg.get("llp_loss"),
+        llp_tolerance=training_cfg.get("llp_tolerance"),
+        llp_huber_delta=training_cfg.get("llp_huber_delta"),
         use_amp=not args.no_amp,
         lr_scheduler_fn=lr_scheduler_fn,
         restore_optim=args.restore_optim,
@@ -283,5 +291,26 @@ def argparser():
             "LLP bag key grouping. 0 groups valid reads in each batch into one bag; "
             "N>0 uses floor(sample_key / N)."
         ),
+    )
+    parser.add_argument(
+        "--llp-loss",
+        default=None,
+        choices=["bce", "mse", "huber"],
+        help="LLP bag proportion loss. Defaults to training.llp_loss or bce.",
+    )
+    parser.add_argument(
+        "--llp-tolerance",
+        default=None,
+        type=float,
+        help=(
+            "Relaxed LLP target half-width. Bags with predicted proportion inside "
+            "[target - tolerance, target + tolerance] receive zero LLP penalty."
+        ),
+    )
+    parser.add_argument(
+        "--llp-huber-delta",
+        default=None,
+        type=float,
+        help="Huber delta for --llp-loss huber. Defaults to training.llp_huber_delta or 0.05.",
     )
     return parser
