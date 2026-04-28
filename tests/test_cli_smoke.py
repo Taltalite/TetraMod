@@ -591,6 +591,70 @@ class TetramodCliSmokeTest(unittest.TestCase):
             self.assertEqual(sorted(np.unique(bag_targets).tolist()), [0.125, 0.75])
             self.assertEqual(sorted([int((bag_keys == key).sum()) for key in np.unique(bag_keys)]), [4, 4, 4, 4])
 
+    def test_llp_dataset_diagnostics_script_smoke(self):
+        import json
+        import subprocess
+        import sys
+        import tempfile
+
+        import numpy as np
+
+        def write_split(directory):
+            directory.mkdir(parents=True)
+            n = 8
+            np.save(directory / "chunks.npy", np.ones((n, 8), dtype=np.float16))
+            np.save(directory / "references.npy", np.ones((n, 3), dtype=np.uint8))
+            np.save(directory / "reference_lengths.npy", np.full((n,), 3, dtype=np.uint16))
+            mod_targets = np.full((n, 3), -100, dtype=np.int16)
+            mod_targets[:, :2] = 0
+            np.save(directory / "mod_targets.npy", mod_targets)
+            np.save(directory / "bag_keys.npy", np.asarray([1, 1, 1, 1, 2, 2, 2, 2], dtype=np.int64))
+            np.save(directory / "bag_targets.npy", np.asarray([0.5] * 4 + [0.75] * 4, dtype=np.float32))
+            np.save(directory / "ratio_labels.npy", np.asarray(["50"] * 4 + ["75"] * 4, dtype=str))
+            np.savez(
+                directory / "metadata.npz",
+                record_id=np.asarray([f"read_{idx}" for idx in range(n)], dtype=str),
+                pod5_read_id=np.asarray([f"pod5_{idx}" for idx in range(n)], dtype=str),
+                run_id=np.asarray(["run_a"] * 4 + ["run_b"] * 4, dtype=str),
+                contig=np.asarray(["tx1"] * n, dtype=str),
+                primary_site_key=np.asarray(["tx1:100:1:A"] * 4 + ["tx1:200:1:A"] * 4, dtype=str),
+                kmer_context=np.asarray(["GGACT"] * 4 + ["TTACA"] * 4, dtype=str),
+                motif_context=np.asarray(["DRACH"] * 4 + ["UUACH"] * 4, dtype=str),
+                mean_qscore=np.asarray([12.0] * 4 + [10.0] * 4, dtype=np.float32),
+                mapping_coverage=np.asarray([0.95] * 4 + [0.85] * 4, dtype=np.float32),
+            )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            dataset = root / "dataset"
+            output = root / "diagnostics"
+            write_split(dataset)
+            write_split(dataset / "validation")
+
+            subprocess.run(
+                [
+                    sys.executable,
+                    "validate/diagnose_llp_dataset.py",
+                    str(dataset),
+                    "--output-dir",
+                    str(output),
+                    "--split",
+                    "all",
+                    "--compare-ratios",
+                    "50,75",
+                ],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+
+            summary = json.loads((output / "summary.json").read_text(encoding="utf-8"))
+            self.assertEqual(summary["splits"]["train"]["num_reads"], 8)
+            self.assertEqual(summary["splits"]["valid"]["num_bags"], 2)
+            self.assertTrue((output / "ratio_summary.tsv").exists())
+            self.assertTrue((output / "category_distance.tsv").exists())
+
     def test_create_dataset_rna002_resolves_model_config_normalisation(self):
         import tempfile
 
