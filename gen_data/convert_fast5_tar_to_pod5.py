@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor, as_completed
+import fnmatch
 import json
 import os
 import re
@@ -42,6 +43,7 @@ from pod5.tools.pod5_convert_from_fast5 import (
 
 
 ARCHIVE_PATTERNS = ("*.fast5.tar.gz*", "*.fast5.tgz*", "*.tar.gz*", "*.tgz")
+NESTED_ARCHIVE_PATTERNS = ("*.fast5.tar", "*.tar", "*.fast5.tar.gz", "*.tar.gz", "*.tgz")
 DEFAULT_SOFTWARE_NAME = "TetraMod FAST5 archive to POD5 converter"
 
 
@@ -54,7 +56,22 @@ def parse_args():
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--recursive", action="store_true", help="Recursively search input directories for archives.")
     parser.add_argument("--archive-pattern", action="append", default=None, help="Glob pattern for archive discovery in directories.")
+    parser.add_argument(
+        "--fast5-member-pattern",
+        action="append",
+        default=None,
+        help=(
+            "Tar member glob used to select FAST5 files inside archives. "
+            "Defaults to *.fast5; use '*' if archived FAST5 members lack a .fast5 suffix."
+        ),
+    )
     parser.add_argument("--extract-dir", type=Path, default=None, help="Directory for extracted FAST5 staging data.")
+    parser.add_argument(
+        "--max-nested-depth",
+        type=int,
+        default=3,
+        help="Maximum recursive tar nesting depth to unpack inside input archives.",
+    )
     parser.add_argument("--keep-extracted", action="store_true", help="Keep extracted FAST5 files after conversion.")
     parser.add_argument("--force", action="store_true", help="Overwrite existing POD5 outputs.")
     parser.add_argument("--strict", action="store_true", help="Stop on the first unreadable FAST5 instead of skipping it.")
@@ -118,35 +135,78 @@ def output_name_for_input(path: Path) -> str:
     return f"{name}.pod5"
 
 
-def safe_extract_fast5_archive(archive_path: Path, extract_root: Path, *, show_progress: bool = True) -> list[Path]:
+def member_matches(member_name: str, patterns: tuple[str, ...]) -> bool:
+    name = member_name.lower()
+    basename = Path(name).name
+    return any(fnmatch.fnmatch(name, pattern) or fnmatch.fnmatch(basename, pattern) for pattern in patterns)
+
+
+def safe_extract_member(archive: tarfile.TarFile, member: tarfile.TarInfo, extract_root: Path) -> Path:
+    root_resolved = extract_root.resolve()
+    target = (extract_root / member.name).resolve()
+    if root_resolved != target and root_resolved not in target.parents:
+        raise ValueError(f"Unsafe archive member path in {archive.name}: {member.name}")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with archive.extractfile(member) as src, target.open("wb") as dst:
+        if src is None:
+            raise ValueError(f"Unable to read archive member: {member.name}")
+        shutil.copyfileobj(src, dst)
+    return target
+
+
+def safe_extract_fast5_archive(
+    archive_path: Path,
+    extract_root: Path,
+    *,
+    member_patterns: tuple[str, ...],
+    max_nested_depth: int,
+    show_progress: bool = True,
+) -> list[Path]:
     archive_path = archive_path.resolve()
     extract_root.mkdir(parents=True, exist_ok=True)
     extracted = []
-    root_resolved = extract_root.resolve()
     with tarfile.open(archive_path, mode="r:*") as archive:
-        members = [member for member in archive.getmembers() if member.isfile() and member.name.lower().endswith(".fast5")]
+        regular_members = [member for member in archive.getmembers() if member.isfile()]
+        fast5_members = [member for member in regular_members if member_matches(member.name, member_patterns)]
+        nested_members = [
+            member
+            for member in regular_members
+            if max_nested_depth > 0 and member_matches(member.name, NESTED_ARCHIVE_PATTERNS)
+        ]
+        members = fast5_members + [member for member in nested_members if member not in fast5_members]
         iterator = tqdm(
             members,
             desc=f"extract:{archive_path.name}",
-            unit="fast5",
+            unit="file",
             ascii=True,
             ncols=100,
             disable=not show_progress,
         )
         for member in iterator:
-            if not member.isfile() or not member.name.lower().endswith(".fast5"):
+            target = safe_extract_member(archive, member, extract_root)
+            if member_matches(member.name, member_patterns):
+                extracted.append(target)
                 continue
-            target = (extract_root / member.name).resolve()
-            if root_resolved != target and root_resolved not in target.parents:
-                raise ValueError(f"Unsafe archive member path in {archive_path}: {member.name}")
-            target.parent.mkdir(parents=True, exist_ok=True)
-            with archive.extractfile(member) as src, target.open("wb") as dst:
-                if src is None:
-                    raise ValueError(f"Unable to read archive member: {member.name}")
-                shutil.copyfileobj(src, dst)
-            extracted.append(target)
+            if max_nested_depth > 0 and is_archive(target):
+                nested_root = target.parent / f"{target.name}.extract"
+                extracted.extend(
+                    safe_extract_fast5_archive(
+                        target,
+                        nested_root,
+                        member_patterns=member_patterns,
+                        max_nested_depth=max_nested_depth - 1,
+                        show_progress=show_progress,
+                    )
+                )
     if not extracted:
-        raise ValueError(f"No .fast5 files were found inside archive: {archive_path}")
+        examples = [member.name for member in regular_members[:20]]
+        raise ValueError(
+            f"No FAST5 members matching {member_patterns} were found inside archive: {archive_path}. "
+            f"Regular file members observed={len(regular_members)}, examples={examples}. "
+            "If these files are FAST5/HDF5 but lack a .fast5 suffix, rerun with --fast5-member-pattern '*'. "
+            "If this is one piece of a split gzip/tar archive, concatenate all pieces first. "
+            "If members are nested tar files, increase --max-nested-depth."
+        )
     return sorted(extracted)
 
 
@@ -307,10 +367,26 @@ def convert_fast5_paths_to_pod5(
     }
 
 
-def stage_fast5_inputs(input_path: Path, staging_root: Path, *, show_progress: bool = True) -> tuple[list[Path], Path | None]:
+def stage_fast5_inputs(
+    input_path: Path,
+    staging_root: Path,
+    *,
+    member_patterns: tuple[str, ...],
+    max_nested_depth: int,
+    show_progress: bool = True,
+) -> tuple[list[Path], Path | None]:
     if is_archive(input_path):
         archive_stage = staging_root / input_path.name.replace(os.sep, "_")
-        return safe_extract_fast5_archive(input_path, archive_stage, show_progress=show_progress), archive_stage
+        return (
+            safe_extract_fast5_archive(
+                input_path,
+                archive_stage,
+                member_patterns=member_patterns,
+                max_nested_depth=max_nested_depth,
+                show_progress=show_progress,
+            ),
+            archive_stage,
+        )
     if input_path.is_file() and input_path.name.lower().endswith(".fast5"):
         return [input_path.resolve()], None
     raise ValueError(f"Unsupported input; expected tar archive or .fast5 file: {input_path}")
@@ -325,6 +401,8 @@ def convert_one_input(
     keep_extracted: bool,
     software_name: str,
     strict: bool,
+    member_patterns: tuple[str, ...],
+    max_nested_depth: int,
     show_progress: bool,
 ) -> dict:
     input_path = input_path.resolve()
@@ -343,7 +421,13 @@ def convert_one_input(
             staging_root.mkdir(parents=True, exist_ok=True)
 
         print(f"[convert] {input_path} -> {output_path}", flush=True)
-        fast5_paths, extracted_dir = stage_fast5_inputs(input_path, staging_root, show_progress=show_progress)
+        fast5_paths, extracted_dir = stage_fast5_inputs(
+            input_path,
+            staging_root,
+            member_patterns=member_patterns,
+            max_nested_depth=max_nested_depth,
+            show_progress=show_progress,
+        )
         result = convert_fast5_paths_to_pod5(
             fast5_paths,
             output_path,
@@ -377,6 +461,8 @@ def validate_unique_outputs(inputs: list[Path], output_dir: Path) -> None:
 def main():
     args = parse_args()
     patterns = tuple(args.archive_pattern) if args.archive_pattern else ARCHIVE_PATTERNS
+    member_patterns = tuple(pattern.lower() for pattern in (args.fast5_member_pattern or ["*.fast5"]))
+    max_nested_depth = max(0, int(args.max_nested_depth))
     inputs = discover_inputs(args.inputs, args.recursive, patterns, int(args.limit))
     args.output_dir.mkdir(parents=True, exist_ok=True)
     jobs = max(1, int(args.jobs))
@@ -395,6 +481,8 @@ def main():
                     keep_extracted=bool(args.keep_extracted),
                     software_name=args.software_name,
                     strict=bool(args.strict),
+                    member_patterns=member_patterns,
+                    max_nested_depth=max_nested_depth,
                     show_progress=show_progress,
                 )
             )
@@ -410,6 +498,8 @@ def main():
                     keep_extracted=bool(args.keep_extracted),
                     software_name=args.software_name,
                     strict=bool(args.strict),
+                    member_patterns=member_patterns,
+                    max_nested_depth=max_nested_depth,
                     show_progress=False,
                 )
                 for input_path in inputs

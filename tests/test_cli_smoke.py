@@ -751,9 +751,12 @@ scale_multiplier = 0.59
                 read.attrs["median_before"] = 80.0
                 read.create_dataset("Signal", data=np.arange(10, dtype=np.int16))
 
+            inner_archive_path = root / "1204670-1.fast5.tar"
+            with tarfile.open(inner_archive_path, "w") as archive:
+                archive.add(fast5_path, arcname="read.fast5")
             archive_path = root / "RNAAB089716.fast5.tar.gz.4"
             with tarfile.open(archive_path, "w:gz") as archive:
-                archive.add(fast5_path, arcname="read.fast5")
+                archive.add(inner_archive_path, arcname="fast5/1204670-1.fast5.tar")
             output_dir = root / "pod5"
 
             subprocess.run(
