@@ -120,3 +120,31 @@ python validate/evaluate_llp_bags.py \
     --batchsize 20 \
     --device cuda:0 \
     --no-compile
+
+# =============数据质量检查===================
+ python validate/diagnose_llp_dataset.py \
+    /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/llp_real_ratio \
+    --output-dir /home/lijy/workspace/TetraMod/val_res/rna002_llp_dataset_diagnosis \
+    --split all \
+    --compare-ratios 50,75 \
+    --top-k 30
+# ===========================================
+
+tetramod train_promote -f /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/tetramod_model/llp_rna002_run2 \
+    --directory /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/llp_real_ratio \
+    --config /home/lijy/workspace/TetraMod/src/tetramod/models/configs/multihead_transformer.toml \
+    --pretrained /data/biolab-nvme-pcie2/lijy/bonito_models/rna002_70bps_sup@v3 \
+    --promote-stage llp \
+    --promote-base A \
+    --llp-loss huber \
+    --llp-tolerance 0.05 \
+    --llp-huber-delta 0.05 \
+    --epochs 20 \
+    --batch 20 \
+    --grad-accum-split 1 \
+    --lr 5e-5 \
+    --chunks 15606 \
+    --valid-chunks 1470 \
+    --profile-chunks 5000 \
+    --device cuda:0 \
+    > /home/lijy/workspace/TetraMod/log/train_log/rna002_m6a_llp_run1.log 2>&1
