@@ -39,6 +39,7 @@ class TetramodCliSmokeTest(unittest.TestCase):
         args = argparser().parse_args(["workdir", "--pretrained", "model_dir"])
         self.assertEqual(args.promote_base, PROMOTE_HEAD_BASE)
         self.assertIsNone(args.promote_stage)
+        self.assertFalse(args.compile_model)
 
         args = argparser().parse_args(
             [
@@ -57,6 +58,7 @@ class TetramodCliSmokeTest(unittest.TestCase):
                 "0.05",
                 "--llp-huber-delta",
                 "0.1",
+                "--compile",
             ]
         )
         self.assertEqual(args.promote_stage, "llp")
@@ -65,6 +67,7 @@ class TetramodCliSmokeTest(unittest.TestCase):
         self.assertEqual(args.llp_loss, "huber")
         self.assertEqual(args.llp_tolerance, 0.05)
         self.assertEqual(args.llp_huber_delta, 0.1)
+        self.assertTrue(args.compile_model)
 
     def test_train_promote_restricts_model_to_a_head(self):
         from tetramod.cli.train_promote import prepare_promote_config

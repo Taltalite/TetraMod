@@ -21,6 +21,36 @@ PROMOTE_HEAD_BASE = "A"
 PROMOTE_HEAD_LABELS = ["canonical_A", "m6A"]
 
 
+def configure_torch_float32_precision(torch, device):
+    """
+    Use PyTorch's newer fp32 precision knobs when available.
+
+    This avoids relying on the deprecated allow_tf32 accessors in newer torch
+    releases while keeping older torch releases working unchanged.
+    """
+    if str(device).lower() == "cpu":
+        return
+
+    cuda_backend = getattr(torch.backends, "cuda", None)
+    matmul_backend = getattr(cuda_backend, "matmul", None)
+    if matmul_backend is not None and hasattr(matmul_backend, "fp32_precision"):
+        matmul_backend.fp32_precision = "ieee"
+
+    cudnn_backend = getattr(torch.backends, "cudnn", None)
+    conv_backend = getattr(cudnn_backend, "conv", None)
+    if conv_backend is not None and hasattr(conv_backend, "fp32_precision"):
+        conv_backend.fp32_precision = "tf32"
+
+
+def maybe_compile_promote_model(torch, model, *, enabled: bool):
+    if not enabled:
+        return model
+    try:
+        return torch.compile(model, dynamic=True)
+    except TypeError:
+        return torch.compile(model)
+
+
 def _imports():
     import toml
     import torch
@@ -107,6 +137,7 @@ def main(args):
 
     _check_device_available(torch, args.device)
     deps["init"](args.seed, args.device, (not args.nondeterministic))
+    configure_torch_float32_precision(torch, args.device)
     device = torch.device(args.device)
 
     config = toml.load(args.config)
@@ -161,7 +192,7 @@ def main(args):
     preload_stats = deps["load_pretrained_weights"](model, args.pretrained, device)
 
     try:
-        model = torch.compile(model)
+        model = maybe_compile_promote_model(torch, model, enabled=args.compile_model)
     except RuntimeError as exc:
         print(f"[warning] Torch model failed to compile, performance may be degraded. {exc}")
 
@@ -265,6 +296,23 @@ def argparser():
         type=int,
         help="Flush training profiling stats every N chunks; set 0 to disable.",
     )
+    compile_group = parser.add_mutually_exclusive_group()
+    compile_group.add_argument(
+        "--compile",
+        dest="compile_model",
+        action="store_true",
+        help=(
+            "Enable torch.compile(dynamic=True). Disabled by default for train_promote because "
+            "RNA002 CNN+LSTM and bagged batches can trigger frequent recompilation."
+        ),
+    )
+    compile_group.add_argument(
+        "--no-compile",
+        dest="compile_model",
+        action="store_false",
+        help="Disable torch.compile for train_promote.",
+    )
+    compile_group.set_defaults(compile_model=False)
     parser.add_argument(
         "--promote-base",
         default=PROMOTE_HEAD_BASE,
