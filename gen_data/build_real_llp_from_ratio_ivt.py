@@ -203,6 +203,13 @@ def parse_args():
     parser.add_argument("--non-a-policy", choices=["ignore", "canonical", "zero"], default="ignore")
     parser.add_argument("--seed", type=int, default=1)
 
+    parser.add_argument("--bagging-mode", choices=["ratio-stratified", "common-strata"], default="ratio-stratified")
+    parser.add_argument("--match-fields", default="contig,kmer_context,motif_context")
+    parser.add_argument("--bag-size", type=int, default=20)
+    parser.add_argument("--min-bag-size", type=int, default=4)
+    parser.add_argument("--max-bags-per-stratum", type=int, default=0)
+    parser.add_argument("--no-balance-ratios", dest="balance_ratios", action="store_false")
+    parser.set_defaults(balance_ratios=True)
     parser.add_argument("--max-per-stratum", type=int, default=0)
     parser.add_argument("--qscore-bins", default="8,10,12,14,16")
     parser.add_argument("--coverage-bins", default="0.85,0.9,0.95,0.98")
@@ -238,6 +245,16 @@ def main():
         args.output_dir,
         "--seed",
         args.seed,
+        "--bagging-mode",
+        args.bagging_mode,
+        "--match-fields",
+        args.match_fields,
+        "--bag-size",
+        args.bag_size,
+        "--min-bag-size",
+        args.min_bag_size,
+        "--max-bags-per-stratum",
+        args.max_bags_per_stratum,
         "--max-per-stratum",
         args.max_per_stratum,
         "--qscore-bins",
@@ -251,6 +268,8 @@ def main():
         "--validation-fraction",
         args.validation_fraction,
     ]
+    if not args.balance_ratios:
+        combine_cmd.append("--no-balance-ratios")
     for run_id in args.heldout_run:
         combine_cmd.extend(["--heldout-run", run_id])
     if args.heldout_runs_file is not None:

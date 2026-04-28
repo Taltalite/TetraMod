@@ -386,6 +386,80 @@ class TetramodCliSmokeTest(unittest.TestCase):
         self.assertEqual(ratio_dataset.ratio_label, "75")
         self.assertAlmostEqual(ratio_dataset.ratio_fraction, 0.75)
 
+    def test_real_llp_ratio_stratified_builder_does_not_require_common_strata(self):
+        import subprocess
+        import sys
+        import tempfile
+
+        import numpy as np
+
+        def write_ratio_dataset(directory, ratio_name, run_id, site_prefix):
+            directory.mkdir(parents=True)
+            n = 8
+            np.save(directory / "chunks.npy", np.ones((n, 8), dtype=np.float16))
+            np.save(directory / "references.npy", np.ones((n, 3), dtype=np.uint8))
+            np.save(directory / "reference_lengths.npy", np.full((n,), 3, dtype=np.uint16))
+            np.save(directory / "mod_targets.npy", np.zeros((n, 3), dtype=np.int16))
+            np.savez(
+                directory / "metadata.npz",
+                record_id=np.asarray([f"{ratio_name}_read_{idx}" for idx in range(n)], dtype=str),
+                pod5_read_id=np.asarray([f"{ratio_name}_pod5_{idx}" for idx in range(n)], dtype=str),
+                run_id=np.asarray([run_id] * n, dtype=str),
+                contig=np.asarray(["tx1"] * n, dtype=str),
+                primary_site_key=np.asarray([f"{site_prefix}:{100 + idx}:1:A" for idx in range(n)], dtype=str),
+                kmer_context=np.asarray(["GGACT"] * n, dtype=str),
+                motif_context=np.asarray(["DRACH"] * n, dtype=str),
+                ref_start=np.arange(n, dtype=np.int64),
+                ref_end=np.arange(n, dtype=np.int64) + 3,
+                ref_strand=np.ones((n,), dtype=np.int8),
+                chunk_start=np.zeros((n,), dtype=np.int64),
+                chunk_end=np.full((n,), 8, dtype=np.int64),
+                primary_site_pos=np.arange(n, dtype=np.int64) + 100,
+                mean_qscore=np.full((n,), 12.0, dtype=np.float32),
+                mapping_accuracy=np.full((n,), 0.99, dtype=np.float32),
+                mapping_coverage=np.full((n,), 0.95, dtype=np.float32),
+            )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            d12 = root / "ratio_12p5"
+            d75 = root / "ratio_75"
+            out = root / "out"
+            write_ratio_dataset(d12, "12p5", "run_a", "site_a")
+            write_ratio_dataset(d75, "75", "run_b", "site_b")
+
+            subprocess.run(
+                [
+                    sys.executable,
+                    "gen_data/build_llp_mixture_dataset.py",
+                    "--ratio-dataset",
+                    f"12.5:{d12}",
+                    "--ratio-dataset",
+                    f"75:{d75}",
+                    "--output-dir",
+                    str(out),
+                    "--bagging-mode",
+                    "ratio-stratified",
+                    "--match-fields",
+                    "contig,kmer_context,motif_context",
+                    "--bag-size",
+                    "4",
+                    "--min-bag-size",
+                    "4",
+                    "--seed",
+                    "7",
+                ],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+
+            bag_targets = np.load(out / "bag_targets.npy")
+            bag_keys = np.load(out / "bag_keys.npy")
+            self.assertEqual(sorted(np.unique(bag_targets).tolist()), [0.125, 0.75])
+            self.assertEqual(sorted([int((bag_keys == key).sum()) for key in np.unique(bag_keys)]), [4, 4, 4, 4])
+
     def test_create_dataset_rna002_resolves_model_config_normalisation(self):
         import tempfile
 
