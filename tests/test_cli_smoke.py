@@ -1,6 +1,18 @@
 import unittest
+import sys
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
+from importlib.util import module_from_spec, spec_from_file_location
+from pathlib import Path
+
+
+def load_repo_script(relative_path):
+    path = Path(relative_path)
+    spec = spec_from_file_location(path.stem, path)
+    module = module_from_spec(spec)
+    sys.modules[path.stem] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 class TetramodCliSmokeTest(unittest.TestCase):
@@ -97,6 +109,81 @@ class TetramodCliSmokeTest(unittest.TestCase):
         )
         self.assertEqual(resolve_llp_settings({"training": {"llp_bag_size": 4}}), {"llp_bag_size": 4})
 
+    def test_promote_can_extract_legacy_rna002_encoder_config(self):
+        from tetramod.cli.train import (
+            extract_pretrained_encoder_config,
+            merge_pretrained_runtime_config,
+            validate_pretrained_runtime_config,
+        )
+
+        pretrained_config = {
+            "model": {"package": "bonito.crf"},
+            "labels": {"labels": ["N", "A", "C", "G", "T"]},
+            "input": {"features": 1},
+            "global_norm": {"state_len": 5},
+            "encoder": {
+                "activation": "swish",
+                "stride": 5,
+                "rnn_type": "lstm",
+                "features": 768,
+                "scale": 5.0,
+                "winlen": 19,
+                "blank_score": 2.0,
+            },
+            "normalisation": {"quantile_a": 0.2, "quantile_b": 0.8},
+        }
+        config = {"model": {}, "labels": {}, "input": {}, "global_norm": {}}
+
+        encoder = extract_pretrained_encoder_config(pretrained_config)
+        self.assertEqual(encoder["rnn_type"], "lstm")
+
+        merged = merge_pretrained_runtime_config(config, pretrained_config)
+        validate_pretrained_runtime_config(merged, pretrained_config)
+        self.assertEqual(merged["labels"]["labels"], ["N", "A", "C", "G", "T"])
+        self.assertEqual(merged["input"]["features"], 1)
+        self.assertEqual(merged["global_norm"]["state_len"], 5)
+        self.assertIn("normalisation", merged)
+
+    def test_multihead_model_reconstructs_legacy_rna002_encoder(self):
+        import torch
+
+        from tetramod.transformer.multihead_model import MultiHeadModel
+
+        config = {
+            "model": {
+                "package": "tetramod.transformer.multihead_model",
+                "pretrained_encoder": {
+                    "activation": "swish",
+                    "stride": 5,
+                    "rnn_type": "lstm",
+                    "features": 8,
+                    "scale": 5.0,
+                    "winlen": 5,
+                    "blank_score": 2.0,
+                    "num_layers": 0,
+                },
+                "mod_bases": ["A"],
+                "mod_global_labels": ["canonical_A", "m6A"],
+                "mod_head_defs": {"A": ["canonical_A", "m6A"]},
+                "mod_trunk_dim": 4,
+                "mod_trunk_depth": 0,
+                "mod_head_dropout": 0.0,
+            },
+            "input": {"features": 1},
+            "labels": {"labels": ["N", "A", "C"]},
+            "global_norm": {"state_len": 2},
+            "training": {"mode": "standalone_mod_head"},
+        }
+
+        model = MultiHeadModel(config)
+        outputs = model(torch.zeros((2, 1, 60), dtype=torch.float32))
+
+        self.assertEqual(model.stride, 5)
+        self.assertEqual(outputs["base_scores"].shape[1], 2)
+        self.assertEqual(outputs["mod_logits_by_base"]["A"].shape[:2], (2, outputs["base_scores"].shape[0]))
+        self.assertFalse(any(param.requires_grad for param in model.encoder.parameters()))
+        self.assertTrue(any(param.requires_grad for param in model.mod_heads.parameters()))
+
     def test_promote_llp_loss_mean_pools_reads_then_bags(self):
         import torch
 
@@ -192,7 +279,6 @@ class TetramodCliSmokeTest(unittest.TestCase):
         import subprocess
         import sys
         import tempfile
-        from pathlib import Path
 
         import numpy as np
 
@@ -263,6 +349,98 @@ class TetramodCliSmokeTest(unittest.TestCase):
             self.assertEqual(bag_keys.shape[0], 12)
             self.assertEqual(sorted(np.unique(bag_targets).tolist()), [0.0, 0.5, 1.0])
             self.assertEqual([int((bag_keys == key).sum()) for key in sorted(np.unique(bag_keys))], [4, 4, 4])
+
+    def test_llp_candidate_mod_targets_mark_a_sites_without_positive_labels(self):
+        import numpy as np
+
+        make_targets = load_repo_script("gen_data/make_mod_targets_m6a.py")
+        references = np.asarray([[1, 2, 1, 4, 0], [3, 1, 4, 0, 0]], dtype=np.uint8)
+        lengths = np.asarray([4, 3], dtype=np.uint16)
+
+        mod_targets = make_targets.build_mod_targets(
+            references,
+            lengths,
+            make_targets.MODE_LLP_CANDIDATE,
+            make_targets.NON_A_POLICY_IGNORE,
+            -100,
+        )
+
+        self.assertEqual(mod_targets[0, 0], make_targets.CANONICAL_LABELS[make_targets.BASE_A])
+        self.assertEqual(mod_targets[0, 2], make_targets.CANONICAL_LABELS[make_targets.BASE_A])
+        self.assertEqual(mod_targets[1, 1], make_targets.CANONICAL_LABELS[make_targets.BASE_A])
+        self.assertFalse(bool((mod_targets == make_targets.M6A_LABEL).any()))
+        self.assertEqual(mod_targets[0, 1], -100)
+        self.assertEqual(mod_targets[0, 4], -100)
+
+    def test_real_llp_ratio_ivt_builder_parses_fractional_runs(self):
+        builder = load_repo_script("gen_data/build_real_llp_from_ratio_ivt.py")
+
+        ratio_run = builder.parse_ratio_run("12.5:/tmp/ratio12.bam:/tmp/pod5:rna002_12p5")
+        self.assertEqual(ratio_run.ratio_label, "12.5")
+        self.assertAlmostEqual(ratio_run.ratio_fraction, 0.125)
+        self.assertEqual(str(ratio_run.bam), "/tmp/ratio12.bam")
+        self.assertEqual(str(ratio_run.pod5_dir), "/tmp/pod5")
+        self.assertEqual(ratio_run.run_id, "rna002_12p5")
+
+        ratio_dataset = builder.parse_ratio_dataset("75:/tmp/dataset75")
+        self.assertEqual(ratio_dataset.ratio_label, "75")
+        self.assertAlmostEqual(ratio_dataset.ratio_fraction, 0.75)
+
+    def test_create_dataset_rna002_resolves_model_config_normalisation(self):
+        import tempfile
+
+        create_dataset = load_repo_script("gen_data/create_dataset_dorado_ctc_like.py")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = Path(temp_dir) / "config.toml"
+            config_path.write_text(
+                """
+[normalisation]
+quantile_a = 0.2
+quantile_b = 0.8
+shift_multiplier = 0.48
+scale_multiplier = 0.59
+""",
+                encoding="utf-8",
+            )
+
+            args = create_dataset.parse_args(
+                [
+                    "--bam-file",
+                    "/tmp/in.bam",
+                    "--pod5-dir",
+                    "/tmp/pod5",
+                    "--reference-fasta",
+                    "/tmp/ref.fa",
+                    "--output-dir",
+                    "/tmp/out",
+                    "--rna002",
+                    "--model-config",
+                    str(config_path),
+                ]
+            )
+            create_dataset.resolve_signal_normalisation(args)
+
+        self.assertEqual(args.norm_strategy, "quantile")
+        self.assertEqual(args.quantile_a, 0.2)
+        self.assertEqual(args.quantile_b, 0.8)
+        self.assertEqual(args.shift_multiplier, 0.48)
+        self.assertEqual(args.scale_multiplier, 0.59)
+
+        default_args = create_dataset.parse_args(
+            [
+                "--bam-file",
+                "/tmp/in.bam",
+                "--pod5-dir",
+                "/tmp/pod5",
+                "--reference-fasta",
+                "/tmp/ref.fa",
+                "--output-dir",
+                "/tmp/out",
+            ]
+        )
+        create_dataset.resolve_signal_normalisation(default_args)
+        self.assertEqual(default_args.norm_strategy, "from-bam")
 
     def test_promote_control_eval_helpers(self):
         from validate.evaluate_promote_control import (

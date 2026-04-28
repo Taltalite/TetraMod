@@ -44,6 +44,7 @@ import mappy
 import numpy as np
 import pod5
 import pysam
+import toml
 from tqdm import tqdm
 
 
@@ -61,6 +62,13 @@ DEFAULT_MAX_PENDING_BATCHES = 2
 DEFAULT_MAX_SAMPLES_PER_WORKER_FILE = 512
 DEFAULT_PROGRESS_LOG_INTERVAL = 10000
 MAX_OPEN_MERGE_CHUNKS = 32
+DEFAULT_MODEL_CONFIG_RNA002 = Path(__file__).resolve().parents[1] / "src/tetramod/models/rna002_70bps_sup@v3/config.toml"
+DEFAULT_NORM_PARAMS = {
+    "quantile_a": 0.2,
+    "quantile_b": 0.9,
+    "shift_multiplier": 0.51,
+    "scale_multiplier": 0.53,
+}
 
 
 def typical_indices(x: np.ndarray, n: float = 2.5) -> np.ndarray:
@@ -104,10 +112,17 @@ def encode_reference(seq: str) -> np.ndarray:
     return encoded
 
 
-def compute_quantile_norm(signal: np.ndarray) -> Tuple[float, float]:
-    qa, qb = np.quantile(signal, [0.2, 0.9])
-    shift = max(10.0, 0.51 * float(qa + qb))
-    scale = max(1.0, 0.53 * float(qb - qa))
+def compute_quantile_norm(
+    signal: np.ndarray,
+    *,
+    quantile_a: float = DEFAULT_NORM_PARAMS["quantile_a"],
+    quantile_b: float = DEFAULT_NORM_PARAMS["quantile_b"],
+    shift_multiplier: float = DEFAULT_NORM_PARAMS["shift_multiplier"],
+    scale_multiplier: float = DEFAULT_NORM_PARAMS["scale_multiplier"],
+) -> Tuple[float, float]:
+    qa, qb = np.quantile(signal, [quantile_a, quantile_b])
+    shift = max(10.0, shift_multiplier * float(qa + qb))
+    scale = max(1.0, scale_multiplier * float(qb - qa))
     return shift, scale
 
 
@@ -184,6 +199,10 @@ class TaskData:
     norm_strategy: str
     pa_mean: float
     pa_std: float
+    quantile_a: float
+    quantile_b: float
+    shift_multiplier: float
+    scale_multiplier: float
     metadata_kmer: int
 
 
@@ -369,8 +388,16 @@ def normalise_interval_signal(interval_signal: np.ndarray, task: TaskData) -> np
     elif task.norm_strategy == "pa":
         shift = float(task.pa_mean)
         scale = float(task.pa_std)
+    elif task.norm_strategy in {"quantile", "model-config"}:
+        shift, scale = compute_quantile_norm(
+            interval_signal,
+            quantile_a=float(task.quantile_a),
+            quantile_b=float(task.quantile_b),
+            shift_multiplier=float(task.shift_multiplier),
+            scale_multiplier=float(task.scale_multiplier),
+        )
     else:
-        shift, scale = compute_quantile_norm(interval_signal)
+        raise ValueError(f"Unsupported norm strategy: {task.norm_strategy}")
 
     if abs(scale) < EPS:
         raise ValueError("Signal scale is too small.")
@@ -421,6 +448,10 @@ def build_task(read: pysam.AlignedSegment, args) -> Optional[TaskData]:
         norm_strategy=str(args.norm_strategy),
         pa_mean=float(args.pa_mean),
         pa_std=float(args.pa_std),
+        quantile_a=float(args.quantile_a),
+        quantile_b=float(args.quantile_b),
+        shift_multiplier=float(args.shift_multiplier),
+        scale_multiplier=float(args.scale_multiplier),
         metadata_kmer=int(args.metadata_kmer),
     )
 
@@ -926,7 +957,15 @@ def write_summary(output_dir: Path, args, counters: Dict[str, int], merge_stats:
         "min_accuracy": float(args.min_accuracy),
         "min_coverage": float(args.min_coverage),
         "min_qscore": None if args.min_qscore is None else float(args.min_qscore),
+        "rna002": bool(args.rna002),
+        "model_config": None if args.model_config is None else str(Path(args.model_config).resolve()),
         "norm_strategy": args.norm_strategy,
+        "pa_mean": float(args.pa_mean),
+        "pa_std": float(args.pa_std),
+        "quantile_a": float(args.quantile_a),
+        "quantile_b": float(args.quantile_b),
+        "shift_multiplier": float(args.shift_multiplier),
+        "scale_multiplier": float(args.scale_multiplier),
         "clip_value": float(args.clip_value),
         "counters": {key: int(value) for key, value in sorted(counters.items())},
         "merge": merge_stats,
@@ -948,13 +987,61 @@ def resolve_thresholds(args):
         args.min_coverage = default_coverage
 
 
+def resolve_signal_normalisation(args):
+    if args.rna002 and args.model_config is None:
+        args.model_config = DEFAULT_MODEL_CONFIG_RNA002
+
+    if args.norm_strategy is None:
+        args.norm_strategy = "model-config" if args.rna002 else "from-bam"
+
+    if args.model_config is None:
+        return
+
+    model_config_path = Path(args.model_config)
+    if not model_config_path.exists():
+        raise FileNotFoundError(f"Model config not found: {model_config_path}")
+
+    model_config = toml.load(model_config_path)
+    scaling_cfg = model_config.get("scaling") or {}
+    normalisation_cfg = model_config.get("normalisation") or {}
+    standardisation_cfg = model_config.get("standardisation") or {}
+
+    if args.norm_strategy == "model-config":
+        scaling_strategy = str(scaling_cfg.get("strategy", "quantile" if normalisation_cfg else "")).strip()
+        if scaling_strategy == "pa":
+            args.norm_strategy = "pa"
+            if standardisation_cfg:
+                args.pa_mean = float(standardisation_cfg.get("mean", args.pa_mean))
+                args.pa_std = float(standardisation_cfg.get("stdev", standardisation_cfg.get("std", args.pa_std)))
+            elif int(scaling_cfg.get("standardise", 1)) == 0:
+                args.pa_mean = 0.0
+                args.pa_std = 1.0
+            else:
+                raise ValueError(
+                    f"{model_config_path}: scaling.strategy='pa' requires [standardisation] "
+                    "with mean/stdev, or scaling.standardise=0."
+                )
+        else:
+            args.norm_strategy = "quantile"
+
+    if args.norm_strategy == "quantile" and normalisation_cfg:
+        args.quantile_a = float(normalisation_cfg.get("quantile_a", args.quantile_a))
+        args.quantile_b = float(normalisation_cfg.get("quantile_b", args.quantile_b))
+        args.shift_multiplier = float(normalisation_cfg.get("shift_multiplier", args.shift_multiplier))
+        args.scale_multiplier = float(normalisation_cfg.get("scale_multiplier", args.scale_multiplier))
+
+    if args.norm_strategy == "pa" and standardisation_cfg:
+        args.pa_mean = float(standardisation_cfg.get("mean", args.pa_mean))
+        args.pa_std = float(standardisation_cfg.get("stdev", standardisation_cfg.get("std", args.pa_std)))
+
+
 def resolve_mp_start_method(requested: str) -> str:
     if requested != "auto":
         return requested
     return "fork" if os.name == "posix" else "spawn"
 
 
-def parse_args():
+def parse_args(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--bam-file", required=True, help="Dorado basecaller BAM produced with --reference --emit-moves")
     parser.add_argument("--pod5-dir", required=True)
@@ -973,9 +1060,15 @@ def parse_args():
     parser.add_argument("--min-accuracy", type=float, default=None)
     parser.add_argument("--min-coverage", type=float, default=None)
     parser.add_argument("--min-qscore", type=float, default=None)
-    parser.add_argument("--norm-strategy", choices=["from-bam", "pa", "quantile"], default="from-bam")
+    parser.add_argument("--rna002", action="store_true", default=False, help="Use RNA002-compatible signal normalisation defaults from the model config.")
+    parser.add_argument("--model-config", type=Path, default=None, help="Bonito/TetraMod model config used to resolve model-config normalisation.")
+    parser.add_argument("--norm-strategy", choices=["from-bam", "pa", "quantile", "model-config"], default=None)
     parser.add_argument("--pa-mean", type=float, default=0.0)
     parser.add_argument("--pa-std", type=float, default=1.0)
+    parser.add_argument("--quantile-a", type=float, default=DEFAULT_NORM_PARAMS["quantile_a"])
+    parser.add_argument("--quantile-b", type=float, default=DEFAULT_NORM_PARAMS["quantile_b"])
+    parser.add_argument("--shift-multiplier", type=float, default=DEFAULT_NORM_PARAMS["shift_multiplier"])
+    parser.add_argument("--scale-multiplier", type=float, default=DEFAULT_NORM_PARAMS["scale_multiplier"])
     parser.add_argument("--mm2-preset", default="lr:hq", help="Minimap2 preset used for chunk-local realignment.")
     parser.add_argument("--metadata-kmer", type=int, default=5, help="Odd k-mer size recorded around the primary A site.")
     parser.add_argument("--seed", type=int, default=1)
@@ -984,7 +1077,7 @@ def parse_args():
     parser.add_argument("--max-samples-per-worker-file", type=int, default=DEFAULT_MAX_SAMPLES_PER_WORKER_FILE)
     parser.add_argument("--progress-log-interval", type=int, default=DEFAULT_PROGRESS_LOG_INTERVAL, help="Print a step3 progress log whenever accepted chunks increase by this many. Set <=0 to disable.")
     parser.add_argument("--mp-start-method", choices=["auto", "fork", "spawn", "forkserver"], default="auto")
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def main():
@@ -994,6 +1087,7 @@ def main():
     tempfile.tempdir = "/tmp"
     args = parse_args()
     resolve_thresholds(args)
+    resolve_signal_normalisation(args)
     if args.metadata_kmer <= 0 or args.metadata_kmer % 2 == 0:
         raise ValueError(f"--metadata-kmer must be a positive odd integer, got {args.metadata_kmer}")
     np.random.seed(args.seed)

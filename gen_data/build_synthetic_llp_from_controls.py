@@ -189,8 +189,6 @@ def build_source_dataset(args, source_label: str, output_dir: Path) -> None:
         str(args.workers),
         "--filter-preset",
         args.filter_preset,
-        "--norm-strategy",
-        args.norm_strategy,
         "--metadata-kmer",
         str(args.metadata_kmer),
         "--seed",
@@ -212,6 +210,12 @@ def build_source_dataset(args, source_label: str, output_dir: Path) -> None:
         create_cmd.extend(["--min-coverage", str(args.min_coverage)])
     if args.min_qscore is not None:
         create_cmd.extend(["--min-qscore", str(args.min_qscore)])
+    if args.norm_strategy is not None:
+        create_cmd.extend(["--norm-strategy", args.norm_strategy])
+    if args.rna002:
+        create_cmd.append("--rna002")
+    if args.model_config is not None:
+        create_cmd.extend(["--model-config", args.model_config])
 
     run_command(create_cmd, dry_run=args.dry_run)
 
@@ -584,7 +588,9 @@ def parse_args():
     parser.add_argument("--min-accuracy", type=float, default=None)
     parser.add_argument("--min-coverage", type=float, default=None)
     parser.add_argument("--min-qscore", type=float, default=None)
-    parser.add_argument("--norm-strategy", choices=["from-bam", "pa", "quantile"], default="from-bam")
+    parser.add_argument("--rna002", action="store_true", default=False)
+    parser.add_argument("--model-config", type=Path, default=None)
+    parser.add_argument("--norm-strategy", choices=["from-bam", "pa", "quantile", "model-config"], default=None)
     parser.add_argument("--metadata-kmer", type=int, default=5)
     parser.add_argument("--mm2-preset", default="lr:hq")
     parser.add_argument("--seed", type=int, default=1)

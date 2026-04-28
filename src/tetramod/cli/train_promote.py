@@ -9,6 +9,7 @@ from pathlib import Path
 
 from tetramod.cli.train import (
     _check_device_available,
+    extract_pretrained_encoder_config,
     load_pretrained_config,
     merge_pretrained_runtime_config,
     train_mod_default_config,
@@ -119,10 +120,10 @@ def main(args):
         )
     pretrained_encoder = config.get("model", {}).get("pretrained_encoder")
     if pretrained_encoder is None:
-        pretrained_encoder = pretrained_config.get("model", {}).get("encoder")
+        pretrained_encoder = extract_pretrained_encoder_config(pretrained_config)
         if not pretrained_encoder:
             raise ValueError(
-                "train_promote requires a pretrained basecaller with model.encoder in config.toml "
+                "train_promote requires a pretrained basecaller with model.encoder or encoder in config.toml "
                 "so the frozen encoder can be reconstructed."
             )
         config.setdefault("model", {})["pretrained_encoder"] = pretrained_encoder

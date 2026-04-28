@@ -12,7 +12,7 @@ import edlib
 import torch
 import torch.nn.functional as F
 
-from bonito.crf.model import CTC_CRF, get_stride
+from bonito.crf.model import CTC_CRF, get_stride, rnn_encoder
 from bonito.nn import LinearCRFEncoder, NamedSerial, TransformerEncoderLayer, from_dict
 
 
@@ -94,21 +94,30 @@ class MultiHeadModel(torch.nn.Module):
         )
 
         if pretrained_encoder_cfg:
-            self.encoder = from_dict(pretrained_encoder_cfg)
-            self._native_crf_in_encoder = isinstance(self.encoder, NamedSerial) and "crf" in self.encoder._modules
+            if "type" in pretrained_encoder_cfg:
+                self.encoder = from_dict(pretrained_encoder_cfg)
+            else:
+                self.encoder = rnn_encoder(
+                    self.seqdist.n_base,
+                    self.seqdist.state_len,
+                    insize=config["input"]["features"],
+                    **pretrained_encoder_cfg,
+                )
+            self._encoder_crf_child_name = self._direct_encoder_crf_child_name()
+            self._native_crf_in_encoder = self._encoder_crf_child_name is not None
             if self._native_crf_in_encoder:
-                crf_layer = self.encoder._modules["crf"]
-                if not isinstance(crf_layer, LinearCRFEncoder):
-                    raise TypeError("Expected encoder.crf to be a LinearCRFEncoder")
+                crf_layer = self._encoder_crf_layer()
                 d_model = crf_layer.linear.in_features
             else:
                 d_model = (
                     pretrained_encoder_cfg.get("upsample", {}).get("d_model")
                     or pretrained_encoder_cfg.get("transformer_encoder", {}).get("layer", {}).get("d_model")
+                    or pretrained_encoder_cfg.get("features")
                     or model_cfg.get("d_model", 256)
                 )
             stride = get_stride(self.encoder)
         else:
+            self._encoder_crf_child_name = None
             self._native_crf_in_encoder = False
             d_model = model_cfg.get("d_model", 256)
             nhead = model_cfg.get("nhead", 4)
@@ -308,8 +317,31 @@ class MultiHeadModel(torch.nn.Module):
 
     def _base_crf_encoder(self) -> LinearCRFEncoder | None:
         if self._native_crf_in_encoder:
-            return self.encoder._modules["crf"]
+            return self._encoder_crf_layer()
         return getattr(self, "crf", None)
+
+    def _direct_encoder_crf_child_name(self) -> str | None:
+        encoder = getattr(self, "encoder", None)
+        if encoder is None:
+            return None
+        for name, layer in encoder.named_children():
+            if isinstance(layer, LinearCRFEncoder):
+                return name
+        return None
+
+    def _encoder_crf_layer(self) -> LinearCRFEncoder:
+        if self._encoder_crf_child_name is None:
+            raise RuntimeError("Encoder does not expose a direct LinearCRFEncoder child.")
+        crf_layer = self.encoder._modules[self._encoder_crf_child_name]
+        if not isinstance(crf_layer, LinearCRFEncoder):
+            raise TypeError("Expected encoder CRF child to be a LinearCRFEncoder")
+        return crf_layer
+
+    @staticmethod
+    def _batch_first_features(features: torch.Tensor, batch_size: int) -> torch.Tensor:
+        if features.ndim == 3 and features.shape[0] != batch_size and features.shape[1] == batch_size:
+            return features.transpose(0, 1)
+        return features
 
     def use_koi(self, **kwargs) -> None:
         crf = self._base_crf_encoder()
@@ -403,15 +435,15 @@ class MultiHeadModel(torch.nn.Module):
             if self._native_crf_in_encoder:
                 features = x
                 for name, layer in self.encoder.named_children():
-                    if name == "crf":
+                    if name == self._encoder_crf_child_name:
                         break
                     features = layer(features)
-                base_scores = self.encoder.crf(features)
-                return features, base_scores
+                base_scores = self._encoder_crf_layer()(features)
+                return self._batch_first_features(features, int(x.shape[0])), base_scores
 
             features = self.encoder(x)
             base_scores = self.crf(features)
-            return features, base_scores
+            return self._batch_first_features(features, int(x.shape[0])), base_scores
 
         features = self.conv(x)
         features = features.permute(0, 2, 1)

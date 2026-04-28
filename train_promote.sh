@@ -152,3 +152,11 @@ python validate/evaluate_llp_bags.py /data/biolab-nvme-pcie2/lijy/curlcakes/m6A/
     --output-dir /home/lijy/workspace/TetraMod/val_res/llp_run1 \
     --batchsize 20 \
     --device cuda:0
+
+python validate/evaluate_llp_bags.py /data/biolab-nvme-pcie2/lijy/curlcakes/m6A/tetramod_model/llp_run1 \
+    --directory /data/biolab-nvme-pcie2/lijy/curlcakes/m6A/mix/llp \
+    --dataset valid \
+    --valid-chunks 20500 \
+    --output-dir /home/lijy/workspace/TetraMod/val_res/llp_run1_all \
+    --batchsize 20 \
+    --device cuda:0

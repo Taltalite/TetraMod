@@ -79,7 +79,19 @@ def load_pretrained_config(pretrained):
 
 def load_pretrained_encoder_config(pretrained):
     pretrained_config = load_pretrained_config(pretrained)
-    return pretrained_config.get("model", {}).get("encoder")
+    return extract_pretrained_encoder_config(pretrained_config)
+
+
+def extract_pretrained_encoder_config(pretrained_config):
+    model_encoder = pretrained_config.get("model", {}).get("encoder")
+    if model_encoder:
+        return deepcopy(model_encoder)
+
+    legacy_encoder = pretrained_config.get("encoder")
+    if legacy_encoder:
+        return deepcopy(legacy_encoder)
+
+    return None
 
 
 def extract_pretrained_state_len(pretrained_config):
@@ -111,7 +123,8 @@ def extract_pretrained_input_features(pretrained_config):
     if "features" in input_cfg:
         return int(input_cfg["features"])
 
-    conv_sublayers = pretrained_config.get("model", {}).get("encoder", {}).get("conv", {}).get("sublayers", [])
+    encoder_cfg = extract_pretrained_encoder_config(pretrained_config) or {}
+    conv_sublayers = encoder_cfg.get("conv", {}).get("sublayers", [])
     for layer in conv_sublayers:
         if layer.get("type") == "convolution" and "insize" in layer:
             return int(layer["insize"])
@@ -177,9 +190,7 @@ def validate_pretrained_runtime_config(config, pretrained_config, model=None):
             f"current={current_sample_type!r} pretrained={pretrained_sample_type!r}"
         )
 
-    scaling_cfg = config.get("scaling")
-    if not scaling_cfg:
-        raise ValueError("train_mod config is missing scaling copied from the pretrained basecaller.")
+    scaling_cfg = config.get("scaling") or {}
     if str(scaling_cfg.get("strategy", "")).strip() == "pa" and not config.get("standardisation"):
         raise ValueError(
             "train_mod config uses scaling.strategy='pa' but standardisation is missing. "
@@ -221,10 +232,10 @@ def main(args):
     pretrained_config = load_pretrained_config(args.pretrained)
     pretrained_encoder = config.get("model", {}).get("pretrained_encoder")
     if pretrained_encoder is None:
-        pretrained_encoder = pretrained_config.get("model", {}).get("encoder")
+        pretrained_encoder = extract_pretrained_encoder_config(pretrained_config)
         if not pretrained_encoder:
             raise ValueError(
-                "train_mod requires a pretrained basecaller with model.encoder in config.toml "
+                "train_mod requires a pretrained basecaller with model.encoder or encoder in config.toml "
                 "so standalone mod-head training can reconstruct the frozen encoder."
             )
         config.setdefault("model", {})["pretrained_encoder"] = pretrained_encoder

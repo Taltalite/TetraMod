@@ -8,6 +8,9 @@ Assumptions:
   -100=ignore, 0=canonical_A, 1=canonical_C, 2=canonical_G, 3=canonical_T/U, 4=m6A
 - full-mod mode labels all valid A positions as m6A-positive (4)
 - canonical mode labels all valid A positions as canonical_A (0)
+- llp-candidate mode labels valid A positions as canonical_A (0) only to
+  mark A-head candidate sites for bag-level weak supervision. The per-read
+  target is intentionally not treated as a true modification label.
 - padding is written as ignore_value
 
 By default, valid non-A positions are labeled with their canonical base ids so the
@@ -28,6 +31,7 @@ BASE_G = 3
 BASE_T = 4
 MODE_FULL_MOD = "full-mod"
 MODE_CANONICAL = "canonical"
+MODE_LLP_CANDIDATE = "llp-candidate"
 NON_A_POLICY_IGNORE = "ignore"
 NON_A_POLICY_CANONICAL = "canonical"
 NON_A_POLICY_LEGACY_ZERO = "zero"
@@ -54,11 +58,12 @@ def parse_args():
     )
     parser.add_argument(
         "--mode",
-        choices=[MODE_FULL_MOD, MODE_CANONICAL],
+        choices=[MODE_FULL_MOD, MODE_CANONICAL, MODE_LLP_CANDIDATE],
         default=MODE_FULL_MOD,
         help=(
             "Target labeling mode: full-mod -> label all valid A positions as modified, "
-            "canonical -> label all valid A positions as unmodified"
+            "canonical -> label all valid A positions as unmodified, "
+            "llp-candidate -> mark valid A positions for LLP alignment without read-level modification labels"
         ),
     )
     parser.add_argument(
@@ -169,6 +174,11 @@ def main():
     print(f"Ignored positions: {ignored_count}")
     if args.mode == MODE_FULL_MOD:
         print("Mode: full-mod (all valid A positions were labeled as m6A / global id 4).")
+    elif args.mode == MODE_LLP_CANDIDATE:
+        print(
+            "Mode: llp-candidate (valid A positions were marked as A-head candidates; "
+            "bag_targets.npy supplies the weak modification proportion)."
+        )
     else:
         print("Mode: canonical (all valid A positions were labeled as canonical_A / global id 0).")
     if args.non_a_policy == NON_A_POLICY_IGNORE:
