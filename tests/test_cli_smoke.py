@@ -787,6 +787,7 @@ scale_multiplier = 0.59
         from validate.evaluate_promote_control import (
             DatasetSpec,
             build_dataset_specs,
+            clear_alignment_cache,
             monotonicity_check,
             parse_mix_dataset,
         )
@@ -812,6 +813,19 @@ scale_multiplier = 0.59
             {"name": "full_mod", "ratio": 100.0, "mean_pred_mod_prob": 0.9},
         ])
         self.assertTrue(monotonic["non_decreasing_by_mean_prob"])
+
+        class FakeModel:
+            def __init__(self):
+                self._alignment_cache = {1: "cached"}
+                self.reset_called = False
+
+            def reset_alignment_cache_stats(self):
+                self.reset_called = True
+
+        fake_model = FakeModel()
+        clear_alignment_cache(fake_model)
+        self.assertEqual(fake_model._alignment_cache, {})
+        self.assertTrue(fake_model.reset_called)
 
     def test_basecaller_defaults_to_koi(self):
         from tetramod.cli.basecaller import argparser

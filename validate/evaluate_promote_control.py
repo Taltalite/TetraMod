@@ -142,6 +142,16 @@ def resolve_output_dir(args) -> Path:
     return Path(args.model_directory) / f"promote_control_eval_{args.dataset}_weights_{weights_label}"
 
 
+def clear_alignment_cache(model) -> None:
+    unwrapped = getattr(model, "module", model)
+    unwrapped = getattr(unwrapped, "_orig_mod", unwrapped)
+    cache = getattr(unwrapped, "_alignment_cache", None)
+    if cache is not None:
+        cache.clear()
+    if hasattr(unwrapped, "reset_alignment_cache_stats"):
+        unwrapped.reset_alignment_cache_stats()
+
+
 def resolve_loader(args, model, dataset_dir: Path, output_dir: Path):
     data_settings = resolve_train_mod_data_settings(
         directory=dataset_dir,
@@ -174,6 +184,7 @@ def extract_a_head_probs(model, outputs, targets, lengths, mod_targets) -> Tuple
 
 
 def evaluate_dataset(args, model, dataset_spec: DatasetSpec, output_dir: Path) -> Dict[str, object]:
+    clear_alignment_cache(model)
     loader = resolve_loader(args, model, dataset_spec.directory, output_dir)
     model_dtype = next(model.parameters()).dtype
     device = torch.device(args.device)
