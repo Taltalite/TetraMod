@@ -164,3 +164,127 @@ python validate/diagnose_llp_dataset.py \
     --split all \
     --compare-ratios 50,75 \
     --top-k 30
+
+# 用highmod去做IVT ratio input数据
+
+REF=/data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/GSE246151_curlcake_constructs_EcoRV_BamHI_digestion_4ratio.fasta
+
+
+python gen_data/create_dataset_bam_aligned_highmod.py \
+    --bam-file /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/dorado_rna002_bam/cc12p5/rna002_hac_cc12p5.sorted.bam \
+    --pod5-dir /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/converted_pod5/cc12p5 \
+    --reference-fasta "$REF" \
+    --output-dir /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/chunks/mod12p5 \
+    --run-id rna002_cc12p5 \
+    --sample-type rna \
+    --filter-preset relaxed \
+    --chunk-len 10000 \
+    --overlap 500 \
+    --rna002 \
+    --workers 8
+
+
+python gen_data/create_dataset_bam_aligned_highmod.py \
+    --bam-file /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/dorado_rna002_bam/cc25/rna002_hac_cc25.sorted.bam \
+    --pod5-dir /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/converted_pod5/cc25 \
+    --reference-fasta "$REF" \
+    --output-dir /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/chunks/mod25 \
+    --run-id rna002_cc25 \
+    --sample-type rna \
+    --filter-preset relaxed \
+    --chunk-len 10000 \
+    --overlap 500 \
+    --rna002 \
+    --workers 8
+
+
+python gen_data/create_dataset_bam_aligned_highmod.py \
+    --bam-file /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/dorado_rna002_bam/cc50/rna002_hac_cc50.sorted.bam \
+    --pod5-dir /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/converted_pod5/cc50 \
+    --reference-fasta "$REF" \
+    --output-dir /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/chunks/mod50 \
+    --run-id rna002_cc50 \
+    --sample-type rna \
+    --filter-preset relaxed \
+    --chunk-len 10000 \
+    --overlap 500 \
+    --rna002 \
+    --workers 8
+
+
+python gen_data/create_dataset_bam_aligned_highmod.py \
+    --bam-file /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/dorado_rna002_bam/cc75/rna002_hac_cc75.sorted.bam \
+    --pod5-dir /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/converted_pod5/cc75 \
+    --reference-fasta "$REF" \
+    --output-dir /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/chunks/mod75 \
+    --run-id rna002_cc75 \
+    --sample-type rna \
+    --filter-preset relaxed \
+    --chunk-len 10000 \
+    --overlap 500 \
+    --rna002 \
+    --workers 8
+
+# 这些不是强监督标签。这里的 mod_targets.npy 只是告诉后续训练“哪些 A 位点是可参与 LLP 聚合的 candidate site”。
+
+CHUNKS_SRC=/data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/chunks/
+
+for d in "$CHUNKS_SRC"/mod12p5 "$CHUNKS_SRC"/mod25 "$CHUNKS_SRC"/mod50 "$CHUNKS_SRC"/mod75; do
+python gen_data/make_mod_targets_m6a.py \
+    --dataset-dir "$d" \
+    --mode llp-candidate \
+    --non-a-policy ignore
+done
+
+#   - --bagging-mode ratio-stratified：适合真实 ratio-IVT。它在每个 ratio 内部分层组 bag，不强迫每个 ratio 必须拥有完全相同的 site。真实实验里 ratio/run 已经混杂，强行 common-strata 往往会丢掉大量数据。
+#   - --match-fields contig,kmer_context,motif_context：控制主要序列上下文，避免 bag 内 context 太杂；但不加入 primary_site_key，否则 bag 会被切得太碎。
+#   - --heldout-mode leave-site：验证集按 site 留出，比随机 split 更严格。随机 split 容易让同一 reference site 同时出现在 train/valid，验证会偏乐观。
+#   - 默认 ratio balance 是开启的，不要加 --no-balance-ratios。这会让每个 ratio 选中的 bag 数一致，避免高产量比例主导训练。
+
+LLP=/data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/chunks/stage2_llp_ratio_aligned_highmod_bag20
+
+python gen_data/build_llp_mixture_dataset.py \
+    --ratio-dataset 12.5:"$CHUNKS_SRC/mod12p5" \
+    --ratio-dataset 25:"$CHUNKS_SRC/mod25" \
+    --ratio-dataset 50:"$CHUNKS_SRC/mod50" \
+    --ratio-dataset 75:"$CHUNKS_SRC/mod75" \
+    --output-dir "$LLP" \
+    --bagging-mode ratio-stratified \
+    --match-fields contig,kmer_context,motif_context \
+    --bag-size 20 \
+    --min-bag-size 20 \
+    --heldout-mode leave-site \
+    --leave-site-fraction 0.1 \
+    --qscore-bins 8,10,12,14,16 \
+    --coverage-bins 0.70,0.80,0.90,0.95,0.98 \
+    --seed 114514
+
+
+# QC dataset
+
+python validate/diagnose_llp_dataset.py \
+    "$LLP" \
+    --output-dir /home/lijy/workspace/TetraMod/val_res/rna002_llp_aligned_highmod_bag20
+
+# train llp
+
+LLP=/data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/chunks/stage2_llp_ratio_aligned_highmod_bag20
+MODEL_CONFIG=/home/lijy/workspace/TetraMod/src/tetramod/models/configs/multihead_transformer.toml
+tetramod train_promote -f /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/tetramod_model/stage2_llp_run1 \
+    --directory "$LLP" \
+    --config "$MODEL_CONFIG" \
+    --pretrained /data/biolab-nvme-pcie2/lijy/bonito_models/rna002_70bps_sup@v3 \
+    --init-promote-checkpoint /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/tetramod_model/stage1_control_run1/ \
+    --promote-stage llp \
+    --promote-base A \
+    --llp-loss huber \
+    --llp-tolerance 0.025 \
+    --llp-huber-delta 0.05 \
+    --epochs 8 \
+    --batch 64 \
+    --lr 2e-5 \
+    --chunks 283120 \
+    --valid-chunks 28080 \
+    --device cuda:0 \
+    --profile-chunks 100000
+    > /home/lijy/workspace/TetraMod/log/train_log/rna002_m6a_stage2_llp_run1.log 2>&1
