@@ -65,6 +65,7 @@ weights_*.tar
 optim_*.tar
 losses_*.csv
 training.csv
+*.tar
 
 # Large sequencing, alignment, and numpy dataset artifacts
 *.pod5

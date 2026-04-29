@@ -15,27 +15,27 @@ python gen_data/convert_fast5_tar_to_pod5.py \
 
 
 
-/home/zhaoxy/workspace/software/dorado-0.9.0-linux-x64/bin/dorado basecaller /data/biolab-nvme-pool1/fanqy/sequencing/bin/dorado_models/rna002_70bps_hac@v3 \
- --reference  /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/GSE246151_curlcake_constructs_EcoRV_BamHI_digestion.fasta \
+/home/zhaoxy/workspace/software/dorado-0.9.0-linux-x64/bin/dorado basecaller /home/lijy/workspace/TetraMod/src/tetramod/models/rna002_70bps_sup@v3/rna002_70bps_sup@v3 \
+ --reference  /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/GSE124309_FASTA_sequences_of_Curlcakes_4pole.fasta \
  --emit-moves \
  /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/converted_pod5/cc0/ \
- > /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/dorado_rna002_bam/cc0/rna002_hac_cc0.bam
+ > /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/dorado_rna002_bam/cc0/rna002_sup_cc0_4pole.bam
 
 
 
-/home/zhaoxy/workspace/software/dorado-0.9.0-linux-x64/bin/dorado basecaller /data/biolab-nvme-pool1/fanqy/sequencing/bin/dorado_models/rna002_70bps_hac@v3 \
- --reference  /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/GSE246151_curlcake_constructs_EcoRV_BamHI_digestion.fasta \
+/home/zhaoxy/workspace/software/dorado-0.9.0-linux-x64/bin/dorado basecaller /home/lijy/workspace/TetraMod/src/tetramod/models/rna002_70bps_sup@v3/rna002_70bps_sup@v3 \
+ --reference  /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/GSE124309_FASTA_sequences_of_Curlcakes_4pole.fasta \
  --emit-moves \
  /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/converted_pod5/cc100/ \
- > /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/dorado_rna002_bam/cc100/rna002_hac_cc100.bam
+ > /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/dorado_rna002_bam/cc100/rna002_sup_cc100_4pole.bam
 
 
 python gen_data/create_dataset_dorado_ctc_like.py \
-    --bam-file /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/dorado_rna002_bam/cc0/rna002_hac_cc0.sorted.bam \
+    --bam-file /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/dorado_rna002_bam/cc0/rna002_sup_cc0_4pole.sorted.bam \
     --pod5-dir /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/converted_pod5/cc0/ \
-    --reference-fasta /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/GSE246151_curlcake_constructs_EcoRV_BamHI_digestion.fasta \
-    --output-dir /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/chunks/0mod/ \
-    --run-id mod_0_run1 \
+    --reference-fasta /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/GSE124309_FASTA_sequences_of_Curlcakes_4pole.fasta \
+    --output-dir /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/chunks/0mod_sup/ \
+    --run-id mod_0_suprun1 \
     --sample-type rna \
     --rna002 \
     --chunk-len 10000 \
@@ -45,11 +45,11 @@ python gen_data/create_dataset_dorado_ctc_like.py \
     --workers 8
 
 python gen_data/create_dataset_dorado_ctc_like.py \
-    --bam-file /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/dorado_rna002_bam/cc100/rna002_hac_cc100.sorted.bam \
+    --bam-file /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/dorado_rna002_bam/cc100/rna002_sup_cc100_4pole.sorted.bam \
     --pod5-dir /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/converted_pod5/cc100/ \
-    --reference-fasta /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/GSE246151_curlcake_constructs_EcoRV_BamHI_digestion.fasta \
-    --output-dir /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/chunks/mod100/ \
-    --run-id mod_100_run1 \
+    --reference-fasta /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/GSE124309_FASTA_sequences_of_Curlcakes_4pole.fasta \
+    --output-dir /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/chunks/mod100_sup/ \
+    --run-id mod_100_suprun1 \
     --sample-type rna \
     --rna002 \
     --chunk-len 10000 \
@@ -143,15 +143,15 @@ tetramod train_promote -f "$MODEL" \
 
 #   如果显存不够，把 --batch 48 降到 32 或 24。
 
-  4. 验证 0% / 100% 分离度
+#   4. 验证 0% / 100% 分离度
 
-  python validate/evaluate_promote_control.py \
+python validate/evaluate_promote_control.py \
     "$MODEL" \
-    --output-dir /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/val_res/stage1_control_run1 \
+    --output-dir /home/lijy/workspace/TetraMod/val_res/rna002_m6a_stage1_control_run1 \
     --ivt-dir "$CC0" \
     --full-mod-dir "$CC100" \
     --dataset valid \
-    --chunks 30000 \
-    --valid-chunks 2000 \
+    --chunks 253400 \
+    --valid-chunks 20000 \
     --batchsize 32 \
     --device cuda:0
