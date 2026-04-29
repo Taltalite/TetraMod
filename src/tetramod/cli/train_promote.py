@@ -51,6 +51,46 @@ def maybe_compile_promote_model(torch, model, *, enabled: bool):
         return torch.compile(model)
 
 
+def resolve_init_promote_checkpoint(checkpoint):
+    if checkpoint is None:
+        return None
+
+    path = Path(os.path.expanduser(str(checkpoint)))
+    if path.is_file():
+        return path.resolve()
+    if not path.exists():
+        raise FileNotFoundError(f"--init-promote-checkpoint does not exist: {path}")
+    if not path.is_dir():
+        raise ValueError(f"--init-promote-checkpoint must be a weights_*.tar file or model directory: {path}")
+
+    candidates = []
+    for item in path.glob("weights_*.tar"):
+        try:
+            epoch = int(item.stem.split("_")[-1])
+        except ValueError:
+            continue
+        candidates.append((epoch, item))
+    if not candidates:
+        raise FileNotFoundError(f"No weights_*.tar checkpoint found in --init-promote-checkpoint directory: {path}")
+    return max(candidates, key=lambda pair: pair[0])[1].resolve()
+
+
+def has_training_checkpoints(workdir):
+    return any(Path(workdir).glob("weights_*.tar"))
+
+
+def load_init_promote_checkpoint(torch, model, checkpoint, device, *, strip_module_prefix):
+    checkpoint = resolve_init_promote_checkpoint(checkpoint)
+    print(f"[loading init promote checkpoint] - {checkpoint}")
+    state_dict = torch.load(checkpoint, map_location=device, weights_only=False)
+    state_dict = strip_module_prefix(state_dict)
+    if hasattr(model, "load_checkpoint_state_dict"):
+        model.load_checkpoint_state_dict(state_dict)
+    else:
+        model.load_state_dict(state_dict)
+    return {"path": str(checkpoint), "num_tensors": len(state_dict)}
+
+
 def _imports():
     import toml
     import torch
@@ -73,6 +113,7 @@ def _imports():
         load_pretrained_weights,
         load_symbol,
         resolve_model_dir,
+        strip_module_prefix,
     )
 
     return {
@@ -93,6 +134,7 @@ def _imports():
         "resolve_llp_settings": resolve_llp_settings,
         "resolve_promote_stage": resolve_promote_stage,
         "resolve_model_dir": resolve_model_dir,
+        "strip_module_prefix": strip_module_prefix,
         "toml": toml,
         "torch": torch,
     }
@@ -134,6 +176,15 @@ def main(args):
         print("[error] %s exists, use -f to force continue training." % workdir)
         raise SystemExit(1)
     os.makedirs(workdir, exist_ok=True)
+    init_promote_checkpoint = resolve_init_promote_checkpoint(args.init_promote_checkpoint)
+    if init_promote_checkpoint is not None:
+        if args.restore_optim:
+            raise ValueError("--restore-optim cannot be combined with --init-promote-checkpoint.")
+        if has_training_checkpoints(workdir):
+            raise ValueError(
+                "--init-promote-checkpoint starts a fresh Stage 2 run and cannot be used when "
+                f"{workdir} already contains weights_*.tar checkpoints."
+            )
 
     _check_device_available(torch, args.device)
     deps["init"](args.seed, args.device, (not args.nondeterministic))
@@ -190,6 +241,15 @@ def main(args):
     model = deps["load_symbol"](config, "Model")(config)
     validate_pretrained_runtime_config(config, pretrained_config, model=model)
     preload_stats = deps["load_pretrained_weights"](model, args.pretrained, device)
+    init_promote_stats = None
+    if init_promote_checkpoint is not None:
+        init_promote_stats = load_init_promote_checkpoint(
+            torch,
+            model,
+            init_promote_checkpoint,
+            device,
+            strip_module_prefix=deps["strip_module_prefix"],
+        )
 
     try:
         model = maybe_compile_promote_model(torch, model, enabled=args.compile_model)
@@ -222,6 +282,9 @@ def main(args):
         dataset_cfg = {}
     if preload_stats:
         config["training"]["pretrained_weights"] = preload_stats
+    if init_promote_stats:
+        config["training"]["init_promote_checkpoint"] = init_promote_stats["path"]
+        config["training"]["init_promote_checkpoint_weights"] = init_promote_stats
     with open(os.path.join(workdir, "config.toml"), "w") as config_fh:
         toml.dump({**config, **dataset_cfg}, config_fh)
 
@@ -282,6 +345,16 @@ def argparser():
     parser.add_argument("--no-amp", action="store_true", default=False)
     parser.add_argument("-f", "--force", action="store_true", default=False)
     parser.add_argument("--restore-optim", action="store_true", default=False)
+    parser.add_argument(
+        "--init-promote-checkpoint",
+        default=None,
+        type=Path,
+        help=(
+            "Initialize train_promote from an existing promoted checkpoint before training. "
+            "Accepts a model directory containing weights_*.tar or an explicit weights_*.tar file. "
+            "Only model weights are loaded; optimizer state is not restored."
+        ),
+    )
     parser.add_argument("--nondeterministic", action="store_true", default=False)
     parser.add_argument("--save-optim-every", default=10, type=int)
     parser.add_argument("--grad-accum-split", default=1, type=int)

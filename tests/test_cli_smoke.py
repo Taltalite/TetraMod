@@ -1,5 +1,6 @@
 import unittest
 import sys
+import tempfile
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from importlib.util import module_from_spec, spec_from_file_location
@@ -58,6 +59,8 @@ class TetramodCliSmokeTest(unittest.TestCase):
                 "0.05",
                 "--llp-huber-delta",
                 "0.1",
+                "--init-promote-checkpoint",
+                "stage1_model",
                 "--compile",
             ]
         )
@@ -67,7 +70,33 @@ class TetramodCliSmokeTest(unittest.TestCase):
         self.assertEqual(args.llp_loss, "huber")
         self.assertEqual(args.llp_tolerance, 0.05)
         self.assertEqual(args.llp_huber_delta, 0.1)
+        self.assertEqual(args.init_promote_checkpoint, Path("stage1_model"))
         self.assertTrue(args.compile_model)
+
+    def test_train_promote_init_checkpoint_resolver(self):
+        from tetramod.cli.train_promote import (
+            has_training_checkpoints,
+            resolve_init_promote_checkpoint,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            model_dir = Path(tmp)
+            weights_1 = model_dir / "weights_1.tar"
+            weights_3 = model_dir / "weights_3.tar"
+            weights_1.write_bytes(b"stage1")
+            weights_3.write_bytes(b"stage3")
+            (model_dir / "weights_bad.tar").write_bytes(b"ignored")
+
+            self.assertEqual(resolve_init_promote_checkpoint(model_dir), weights_3.resolve())
+            self.assertEqual(resolve_init_promote_checkpoint(weights_1), weights_1.resolve())
+            self.assertTrue(has_training_checkpoints(model_dir))
+
+            empty_dir = model_dir / "empty"
+            empty_dir.mkdir()
+            with self.assertRaises(FileNotFoundError):
+                resolve_init_promote_checkpoint(empty_dir)
+            with self.assertRaises(FileNotFoundError):
+                resolve_init_promote_checkpoint(model_dir / "missing")
 
     def test_train_promote_restricts_model_to_a_head(self):
         from tetramod.cli.train_promote import prepare_promote_config
