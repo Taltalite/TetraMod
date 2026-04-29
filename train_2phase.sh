@@ -155,3 +155,12 @@ python validate/evaluate_promote_control.py \
     --valid-chunks 20000 \
     --batchsize 32 \
     --device cuda:0
+
+# 检查数据集生成bags情况
+
+python validate/diagnose_llp_dataset.py \
+    /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/llp_real_ratio \
+    --output-dir /home/lijy/workspace/TetraMod/val_res/rna002_llp_dataset_diagnosis \
+    --split all \
+    --compare-ratios 50,75 \
+    --top-k 30
