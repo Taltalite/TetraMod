@@ -280,11 +280,177 @@ tetramod train_promote -f /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/tetr
     --llp-loss huber \
     --llp-tolerance 0.025 \
     --llp-huber-delta 0.05 \
-    --epochs 8 \
+    --epochs 10 \
     --batch 64 \
-    --lr 2e-5 \
+    --no-amp \
+    --lr 1e-5 \
     --chunks 283120 \
     --valid-chunks 28080 \
     --device cuda:0 \
-    --profile-chunks 100000
+    --profile-chunks 100000 \
     > /home/lijy/workspace/TetraMod/log/train_log/rna002_m6a_stage2_llp_run1.log 2>&1
+
+
+python validate/evaluate_llp_bags.py /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/tetramod_model/stage2_llp_run1 \
+    --directory "$LLP" \
+    --dataset valid \
+    --device cuda:0 \
+    --batchsize 64 \
+    --chunks 283120 \
+    --valid-chunks 28080 \
+    --no-compile \
+    --output-dir /home/lijy/workspace/TetraMod/val_res/stage2_llp_run1_evaluate_llp_bags
+
+
+python validate/evaluate_llp_bags.py /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/tetramod_model/stage1_control_run1 \
+    --directory "$LLP" \
+    --dataset valid \
+    --device cuda:0 \
+    --batchsize 64 \
+    --chunks 283120 \
+    --valid-chunks 28080 \
+    --no-compile \
+    --output-dir /home/lijy/workspace/TetraMod/val_res/stage1_control_run1_evaluate_baseline_bags
+
+
+python validate/evaluate_promote_control.py /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/tetramod_model/stage1_control_run1 \
+    --ivt-dir /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/chunks/mod0 \
+    --full-mod-dir /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/chunks/mod100_bam_aligned_debug \
+    --dataset valid \
+    --device cuda:0 \
+    --batchsize 64 \
+    --chunks 253400 \
+    --valid-chunks 20000 \
+    --no-compile \
+    --output-dir /home/lijy/workspace/TetraMod/val_res/stage1_control_run1_control_eval
+
+
+# visualization
+
+python validate/evaluate_promote_control.py /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/tetramod_model/stage2_llp_run1 \
+    --ivt-dir /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/chunks/mod0 \
+    --full-mod-dir /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/chunks/mod100_bam_aligned_debug \
+    --dataset valid \
+    --device cuda:0 \
+    --batchsize 64 \
+    --chunks 253400 \
+    --valid-chunks 20000 \
+    --no-compile \
+    --output-dir /home/lijy/workspace/TetraMod/val_res/stage2_llp_run1_control_eval
+
+
+python vis/plot_eval_results.py \
+  --stage1-llp-dir /home/lijy/workspace/TetraMod/val_res/stage1_control_run1_evaluate_baseline_bags \
+  --stage2-llp-dir /home/lijy/workspace/TetraMod/val_res/stage2_llp_run1_evaluate_llp_bags \
+  --stage1-control-dir /home/lijy/workspace/TetraMod/val_res/stage1_control_run1_control_eval \
+  --stage2-control-dir /home/lijy/workspace/TetraMod/val_res/stage2_llp_run1_control_eval \
+  --output-dir /home/lijy/workspace/TetraMod/val_res/vis/
+
+
+python vis/plot_control_labeled_eval.py \
+    --stage1-control-dir /home/lijy/workspace/TetraMod/val_res/stage1_control_run1_control_eval \
+    --stage2-control-dir /home/lijy/workspace/TetraMod/val_res/stage2_llp_run1_control_eval \
+    --output-dir /home/lijy/workspace/TetraMod/val_res/vis_control_out
+
+
+CONTROL_MIX=/data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/chunks/stage1_control_mix
+STAGE1=/data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/tetramod_model/stage1_control_run1
+STAGE2=/data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/tetramod_model/stage2_llp_run1
+
+python validate/evaluate_train_mod.py \
+    --model-directory "$STAGE1" \
+    --directory "$CONTROL_MIX" \
+    --dataset valid \
+    --chunks 253400 \
+    --valid-chunks 20000 \
+    --batchsize 64 \
+    --device cuda:0 \
+    --mod-threshold 0.5 \
+    --site-report-limit 200000 \
+    --signal-example-limit 0 \
+    --no-compile \
+    --output-dir val_res/stage1_control_run1_train_mod_eval
+
+python validate/evaluate_train_mod.py \
+    --model-directory "$STAGE2" \
+    --directory "$CONTROL_MIX" \
+    --dataset valid \
+    --chunks 253400 \
+    --valid-chunks 20000 \
+    --batchsize 64 \
+    --device cuda:0 \
+    --mod-threshold 0.5 \
+    --site-report-limit 200000 \
+    --signal-example-limit 0 \
+    --output-dir val_res/stage2_llp_run1_train_mod_eval
+
+
+python vis/plot_control_labeled_eval.py \
+    --stage1-control-dir val_res/stage1_control_run1_control_eval \
+    --stage2-control-dir val_res/stage2_llp_run1_control_eval \
+    --stage1-sites-tsv val_res/stage1_control_run1_train_mod_eval/mod_site_examples.tsv \
+    --stage2-sites-tsv val_res/stage2_llp_run1_train_mod_eval/mod_site_examples.tsv \
+    --output-dir val_res/vis_control_out_with_sites
+
+
+LLP=/data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/chunks/stage2_llp_ratio_aligned_highmod_bag20
+MODEL_CONFIG=/home/lijy/workspace/TetraMod/src/tetramod/models/configs/multihead_transformer.toml
+tetramod train_promote -f /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/tetramod_model/stage2_llp_run2 \
+    --directory "$LLP" \
+    --config "$MODEL_CONFIG" \
+    --pretrained /data/biolab-nvme-pcie2/lijy/bonito_models/rna002_70bps_sup@v3 \
+    --init-promote-checkpoint /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/tetramod_model/stage1_control_run1/ \
+    --promote-stage llp \
+    --promote-base A \
+    --llp-loss huber \
+    --llp-tolerance 0.025 \
+    --llp-huber-delta 0.05 \
+    --epochs 10 \
+    --batch 64 \
+    --no-amp \
+    --lr 1e-5 \
+    --chunks 283120 \
+    --valid-chunks 28080 \
+    --device cuda:0 \
+    --profile-chunks 100000 \
+    > /home/lijy/workspace/TetraMod/log/train_log/rna002_m6a_stage2_llp_run2.log 2>&1
+
+CONTROL_MIX=/data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/chunks/stage1_control_mix
+
+python validate/evaluate_control_bags.py \
+    /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/tetramod_model/stage1_control_run1 \
+    --directory "$CONTROL_MIX" \
+    --dataset valid \
+    --chunks 253400 \
+    --valid-chunks 20000 \
+    --output-dir /home/lijy/workspace/TetraMod/val_res/stage1_control_0_100_bags \
+    --batchsize 64 \
+    --bag-size 20 \
+    --device cuda:0 \
+    --no-compile
+
+python validate/evaluate_control_bags.py \
+    /data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/tetramod_model/stage1_control_run1 \
+    --directory "$CONTROL_MIX" \
+    --dataset valid \
+    --chunks 253400 \
+    --valid-chunks 20000 \
+    --output-dir val_res/stage1_control_readlevel_bags \
+    --batchsize 64 \
+    --bag-size 1 \
+    --device cuda:0 \
+    --no-compile
+
+python vis/plot_bag_level_roc.py \
+    --stage1-bags /home/lijy/workspace/TetraMod/val_res/stage1_control_0_100_bags \
+    --output-dir /home/lijy/workspace/TetraMod/val_res/vis_bag_roc
+
+python vis/plot_bag_level_roc.py \
+    --stage1-bags /home/lijy/workspace/TetraMod/val_res/stage1_control_readlevel_bags \
+    --output-dir /home/lijy/workspace/TetraMod/val_res/vis_bag_roc_read
+
+
+
+python vis/plot_bag_level_roc.py \
+    --stage2-bags /home/lijy/workspace/TetraMod/val_res/stage2_llp_run1_evaluate_llp_bags \
+    --output-dir val_res/vis_bag_roc
