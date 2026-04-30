@@ -119,7 +119,10 @@ def roc_curve(y_true: np.ndarray, scores: np.ndarray) -> tuple[np.ndarray, np.nd
     fpr = np.r_[0.0, fpr, 1.0]
     tpr = np.r_[0.0, tpr, 1.0]
     thresholds = np.r_[np.inf, thresholds, -np.inf]
-    auc = float(np.trapz(tpr, fpr))
+    integrate = getattr(np, "trapezoid", None)
+    if integrate is None:
+        integrate = np.trapz
+    auc = float(integrate(tpr, fpr))
     return fpr, tpr, thresholds, auc
 
 
