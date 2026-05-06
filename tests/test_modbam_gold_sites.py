@@ -90,6 +90,36 @@ class ModbamGoldSitesTest(unittest.TestCase):
         self.assertEqual(collapsed[("chr1", 10, ".")].coverage, 2)
         self.assertEqual(collapsed[("chr1", 10, ".")].mod_probs, [0.5])
 
+    def test_negative_control_false_positive_summary(self):
+        from validate.evaluate_modbam_gold_sites import SiteStats
+        from validate.evaluate_modbam_negative_control import (
+            build_negative_rows,
+            threshold_false_positive_rows,
+        )
+
+        low = SiteStats()
+        low.add_coverage(0.1)
+        low.add_coverage(None)
+        high = SiteStats()
+        high.add_coverage(0.9)
+        high.add_coverage(0.9)
+        stats = {
+            ("chr1", 10, "+"): low,
+            ("chr1", 20, "+"): high,
+        }
+
+        rows = build_negative_rows(
+            stats,
+            min_coverage=1,
+            score_column="mean_prob_zero_filled",
+            show_progress=False,
+        )
+        sweep = threshold_false_positive_rows(rows, [0.5])
+
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(sweep[0]["false_positive_sites"], 1)
+        self.assertEqual(sweep[0]["false_positive_fraction"], 0.5)
+
     @unittest.skipUnless(find_spec("sklearn") is not None, "scikit-learn is not installed")
     def test_site_rows_and_metrics(self):
         from validate.evaluate_modbam_gold_sites import (

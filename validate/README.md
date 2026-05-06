@@ -22,6 +22,9 @@ to models produced by `tetramod train`.
 - `evaluate_modbam_gold_sites.py`: aggregates MM/ML modified-base calls from an
   aligned modBAM into site-level m6A scores and compares them with gold BED or
   m6A-Atlas-style site tables.
+- `evaluate_modbam_negative_control.py`: aggregates MM/ML modified-base calls
+  from an aligned unmodified-control modBAM and reports site-level false-positive
+  fractions across score thresholds.
 - `check_gold_coordinate_conventions.py`: sweeps gold-site coordinate shifts
   and strand interpretations to diagnose 0/1-based or strand convention
   mismatches before interpreting poor gold-site metrics as model failure.
@@ -47,6 +50,23 @@ The evaluator writes `site_level_predictions.tsv`, positive/negative site TSVs,
 matplotlib is available. The threshold sweep reports TP/TN/FP/FN, FPR,
 specificity, precision, recall, FDR, and F1 from score thresholds 0.00 to 1.00.
 The plot set includes the full ROC curve and a low-FPR ROC view.
+
+For a 0% IVT / unmodified negative-control BAM, run:
+
+```bash
+python validate/evaluate_modbam_negative_control.py \
+  --bam ivt_unmod_tetramod.bam \
+  --reference curlcakes_reference.fasta \
+  --output-dir val_res/ivt_unmod_negative_control \
+  --mod-code a \
+  --canonical-base A \
+  --min-coverage 5 \
+  --score-column mean_prob_zero_filled
+```
+
+The negative-control evaluator writes `site_level_scores.tsv`,
+`threshold_false_positive.tsv`, `summary.json`, `summary.txt`, and plots for the
+score distribution, false-positive curve, and coverage-vs-score relationship.
 
 To check coordinate and strand conventions, run:
 
