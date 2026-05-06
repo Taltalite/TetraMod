@@ -147,3 +147,20 @@ python validate/evaluate_modbam_gold_sites.py \
     --min-coverage 5 \
     --score-column mean_prob_zero_filled \
     --prob-threshold 0.5
+
+
+
+# IVT baseline
+MODEL_DIR="/data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/tetramod_model/stage2_llp_run2/"
+IVT_POD5="/data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/converted_pod5/cc0"
+IVT_REF="/data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/GSE124309_FASTA_sequences_of_Curlcakes_4pole.fasta"
+tetramod basecaller "$MODEL_DIR" "$IVT_POD5" \
+    --device cuda:0 \
+    --weights 10 \
+    --recursive \
+    --rna \
+    --max-reads 4000 \
+    --reference "$IVT_REF" \
+    --alignment-threads 4 \
+    --mod-threshold 0.0 \
+    > ivt_unmod_tetramod.bam
