@@ -9,6 +9,25 @@ from time import perf_counter
 import sys
 
 
+def _write_profile(profile, duration, num_reads):
+    if not profile:
+        return
+    reads = max(int(num_reads), 1)
+    sys.stderr.write("> basecaller profile:\n")
+    for key in (
+        "model_forward_s",
+        "beam_search_s",
+        "format_basecall_s",
+        "mod_tag_s",
+    ):
+        value = float(profile.get(key, 0.0))
+        sys.stderr.write(f"  {key}: {value:.3f}s ({1000.0 * value / reads:.3f} ms/read)\n")
+    sys.stderr.write(f"  model_batches: {int(profile.get('model_batches', 0))}\n")
+    sys.stderr.write(f"  reads_postprocessed: {int(profile.get('reads_postprocessed', 0))}\n")
+    if duration > 0:
+        sys.stderr.write(f"  completed_reads_per_s: {float(num_reads) / float(duration):.3f}\n")
+
+
 def _imports():
     import numpy as np
     import torch
@@ -126,6 +145,7 @@ def main(args):
     if args.verbose:
         sys.stderr.write(f"> model basecaller params: {model.config['basecaller']}\n")
         sys.stderr.write(f"> koi {'enabled' if args.use_koi else 'disabled'}\n")
+        sys.stderr.write(f"> modified-base tags {'disabled' if args.no_mods else 'enabled'}\n")
 
     if args.reference:
         sys.stderr.write("> loading reference\n")
@@ -177,6 +197,7 @@ def main(args):
         if num_reads is not None:
             num_reads = min(num_reads, args.max_reads)
 
+    profile = {} if args.profile_basecaller else None
     results = deps["basecall_mod"](
         model,
         reads,
@@ -186,6 +207,8 @@ def main(args):
         chunksize=model.config["basecaller"]["chunksize"],
         overlap=model.config["basecaller"]["overlap"],
         mod_threshold=args.mod_threshold,
+        emit_mods=not args.no_mods,
+        profile=profile,
     )
 
     if aligner:
@@ -221,6 +244,7 @@ def main(args):
     sys.stderr.write("> completed reads: %s\n" % len(writer.log))
     sys.stderr.write("> duration: %s\n" % timedelta(seconds=np.round(duration)))
     sys.stderr.write("> samples per second %.1E\n" % (num_samples / duration))
+    _write_profile(profile, duration, len(writer.log))
     sys.stderr.write("> done\n")
 
 
@@ -257,5 +281,7 @@ def argparser():
     parser.add_argument("--alignment-threads", default=8, type=int)
     parser.add_argument("--mm2-preset", default="lr:hq", type=str)
     parser.add_argument("--mod-threshold", default=0.5, type=float)
+    parser.add_argument("--no-mods", action="store_true", default=False, help="Basecall only; do not emit MM/ML modified-base tags.")
+    parser.add_argument("--profile-basecaller", action="store_true", default=False, help="Print coarse basecaller timing counters to stderr.")
     parser.add_argument("-v", "--verbose", action="count", default=0)
     return parser

@@ -5,9 +5,9 @@ Multi-head basecalling helpers that produce standard Bonito result dictionaries.
 from __future__ import annotations
 
 from collections import defaultdict
+from time import perf_counter
 from typing import Dict, Iterable, Iterator, List, Tuple
 
-import edlib
 import numpy as np
 import torch
 from koi.decode import beam_search, to_str
@@ -22,6 +22,11 @@ MOD_CODE_BY_LABEL = {
     "5mC": "m",
     "5hmC": "h",
 }
+
+
+def _profile_add(profile: Dict[str, float] | None, key: str, value: float) -> None:
+    if profile is not None:
+        profile[key] = float(profile.get(key, 0.0)) + float(value)
 
 
 def decode_scores(
@@ -55,42 +60,6 @@ def decode_scores(
     }
 
 
-def _parse_cigar(cigar: str) -> List[Tuple[int, str]]:
-    import re
-
-    return [(int(count), op) for count, op in re.findall(r"(\d+)([=XID])", cigar)]
-
-
-def _equal_alignment_pairs(query_seq: str, target_seq: str) -> List[Tuple[int, int]]:
-    if not query_seq or not target_seq:
-        return []
-
-    result = edlib.align(query_seq, target_seq, mode="NW", task="path")
-    cigar = result.get("cigar")
-    if not cigar:
-        return []
-
-    query_index = 0
-    target_index = 0
-    pairs: List[Tuple[int, int]] = []
-    for count, op in _parse_cigar(cigar):
-        if op == "=":
-            for _ in range(count):
-                pairs.append((query_index, target_index))
-                query_index += 1
-                target_index += 1
-        elif op == "X":
-            query_index += count
-            target_index += count
-        elif op == "I":
-            query_index += count
-        elif op == "D":
-            target_index += count
-        else:
-            raise ValueError(f"Unsupported CIGAR op from edlib: {op}")
-    return pairs
-
-
 def _decode_basecall_batch(model, base_scores: torch.Tensor, reverse: bool = False) -> Dict[str, object]:
     if base_scores.ndim != 3:
         raise ValueError(f"Expected base_scores with 3 dims, got shape {tuple(base_scores.shape)}")
@@ -109,36 +78,36 @@ def _decode_basecall_batch(model, base_scores: torch.Tensor, reverse: bool = Fal
     return decode_scores(base_scores, model.seqdist, reverse=reverse)
 
 
-def _run_model_on_batch(model, batch: torch.Tensor, reverse: bool = False) -> Dict[str, object]:
+def _run_model_on_batch(
+    model,
+    batch: torch.Tensor,
+    reverse: bool = False,
+    *,
+    emit_mods: bool = True,
+    profile: Dict[str, float] | None = None,
+) -> Dict[str, object]:
     device = next(model.parameters()).device
     model_dtype = next(model.parameters()).dtype
+    t0 = perf_counter()
     with torch.inference_mode():
         outputs = model(batch.to(device=device, dtype=model_dtype, non_blocking=True))
+    _profile_add(profile, "model_forward_s", perf_counter() - t0)
 
-    base_scores_for_mods = (
-        model.expand_base_scores(outputs["base_scores"])
-        if hasattr(model, "expand_base_scores")
-        else outputs["base_scores"]
-    )
+    t0 = perf_counter()
+    basecall_attrs = _decode_basecall_batch(model, outputs["base_scores"], reverse=reverse)
+    _profile_add(profile, "beam_search_s", perf_counter() - t0)
+    result = {"basecall_attrs": basecall_attrs}
+    if not emit_mods:
+        return result
 
+    _profile_add(profile, "model_batches", 1.0)
     return {
-        "basecall_attrs": _decode_basecall_batch(model, outputs["base_scores"], reverse=reverse),
+        **result,
         "model_outputs": {
-            "base_scores": base_scores_for_mods.detach().cpu().permute(1, 0, 2).contiguous(),
             "mod_logits_by_base": {
-                head_name: logits.detach().cpu().contiguous()
+                head_name: logits.detach().contiguous()
                 for head_name, logits in outputs["mod_logits_by_base"].items()
             },
-        },
-    }
-
-
-def _build_single_read_outputs(stitched_outputs: Dict[str, object], device: torch.device) -> Dict[str, object]:
-    return {
-        "base_scores": stitched_outputs["base_scores"].unsqueeze(1).to(device=device, dtype=torch.float32),
-        "mod_logits_by_base": {
-            head_name: logits.unsqueeze(0).to(device=device, dtype=torch.float32)
-            for head_name, logits in stitched_outputs["mod_logits_by_base"].items()
         },
     }
 
@@ -161,34 +130,6 @@ def _format_basecall_result(stride: int, attrs: Dict[str, object], rna: bool = F
     }
 
 
-def _oriented_mod_predictions(mod_prediction: Dict[str, object], reverse_output: bool) -> Tuple[str, List[Dict[str, object]]]:
-    sites = list(mod_prediction.get("sites", []))
-    sequence = str(mod_prediction.get("sequence", ""))
-    if not reverse_output:
-        oriented = []
-        for index, site in enumerate(sites):
-            oriented.append({**site, "oriented_index": index})
-        return sequence, oriented
-
-    sequence_length = len(sequence)
-    oriented = []
-    for index, site in reversed(list(enumerate(sites))):
-        oriented.append({**site, "oriented_index": int(sequence_length - 1 - index)})
-    return sequence[::-1], oriented
-
-
-def _positive_mod_probability(site: Dict[str, object]) -> float:
-    probs = site.get("local_probs", [])
-    local_pred = int(site.get("local_pred_id", 0))
-    if not isinstance(probs, list) or not probs:
-        return 1.0
-    if 0 <= local_pred < len(probs):
-        return float(probs[local_pred])
-    if len(probs) > 1:
-        return float(max(probs[1:]))
-    return float(probs[0])
-
-
 def _build_mod_tags(sequence: str, mapped_sites: List[Dict[str, object]]) -> List[str]:
     grouped: Dict[Tuple[str, str], List[Tuple[int, int]]] = defaultdict(list)
 
@@ -207,7 +148,7 @@ def _build_mod_tags(sequence: str, mapped_sites: List[Dict[str, object]]) -> Lis
         if base_char not in {"A", "C", "G", "T", "U"}:
             continue
 
-        prob = min(max(_positive_mod_probability(site), 0.0), 1.0)
+        prob = min(max(float(site["probability"]), 0.0), 1.0)
         grouped[(base_char, mod_code)].append((base_index, int(round(prob * 255.0))))
 
     if not grouped:
@@ -244,35 +185,123 @@ def _build_mod_tags(sequence: str, mapped_sites: List[Dict[str, object]]) -> Lis
     ]
 
 
+def _moves_array(attrs: Dict[str, object]) -> np.ndarray:
+    moves = attrs["moves"]
+    if isinstance(moves, torch.Tensor):
+        return moves.detach().cpu().numpy()
+    if isinstance(moves, np.ndarray):
+        return moves
+    return np.asarray(moves)
+
+
+def _head_label_for_local_pred(model, head_name: str, local_idx: int) -> str | None:
+    try:
+        global_id = model.head_global_ids[head_name][int(local_idx)]
+        return str(model.mod_global_labels[int(global_id)])
+    except (AttributeError, KeyError, IndexError, TypeError, ValueError):
+        return None
+
+
+def _mod_sites_from_logits(
+    model,
+    attrs: Dict[str, object],
+    mod_logits_by_base: Dict[str, torch.Tensor],
+    *,
+    rna: bool = False,
+    mod_threshold: float = 0.5,
+) -> List[Dict[str, object]]:
+    raw_sequence = to_str(attrs["sequence"])
+    sequence_length = len(raw_sequence)
+    if sequence_length == 0:
+        return []
+
+    moves = _moves_array(attrs)
+    emit_positions = np.flatnonzero(moves)
+    usable = min(sequence_length, int(emit_positions.shape[0]))
+    if usable == 0:
+        return []
+
+    sites_by_head: Dict[str, List[Tuple[int, int, str]]] = defaultdict(list)
+    for raw_idx in range(usable):
+        base_label = raw_sequence[raw_idx].upper()
+        try:
+            head_name = model._base_slot_for_label(base_label)
+        except AttributeError:
+            head_name = base_label if base_label in mod_logits_by_base else None
+        if head_name is None or head_name not in mod_logits_by_base:
+            continue
+        base_index = sequence_length - 1 - raw_idx if rna else raw_idx
+        sites_by_head[head_name].append((base_index, int(emit_positions[raw_idx]), base_label))
+
+    mapped_sites: List[Dict[str, object]] = []
+    for head_name, site_specs in sites_by_head.items():
+        logits = mod_logits_by_base[head_name]
+        if logits.ndim != 2 or logits.shape[-1] <= 1:
+            continue
+
+        time_indices = torch.tensor(
+            [time_idx for _, time_idx, _ in site_specs],
+            device=logits.device,
+            dtype=torch.long,
+        )
+        selected_logits = logits.index_select(0, time_indices).to(torch.float32)
+        probs = torch.softmax(selected_logits, dim=-1)
+        if probs.shape[-1] == 2:
+            local_preds = torch.where(
+                probs[:, 1] >= float(mod_threshold),
+                torch.ones_like(time_indices),
+                torch.zeros_like(time_indices),
+            )
+        else:
+            local_preds = probs.argmax(dim=-1)
+        pred_probs = probs.gather(1, local_preds.unsqueeze(1)).squeeze(1)
+
+        for spec_idx, (base_index, _time_idx, _base_label) in enumerate(site_specs):
+            local_pred = int(local_preds[spec_idx].item())
+            if local_pred == 0:
+                continue
+            probability = float(pred_probs[spec_idx].item())
+            if probability < float(mod_threshold):
+                continue
+            label = _head_label_for_local_pred(model, head_name, local_pred)
+            if label is None or MOD_CODE_BY_LABEL.get(label) is None:
+                continue
+            mapped_sites.append({
+                "base_index": int(base_index),
+                "global_pred_label": label,
+                "probability": probability,
+            })
+
+    return mapped_sites
+
+
 def _result_from_stitched_outputs(
     model,
     stitched_batch_result: Dict[str, object],
     *,
     rna: bool = False,
     mod_threshold: float = 0.5,
+    emit_mods: bool = True,
+    profile: Dict[str, float] | None = None,
 ) -> Dict[str, object]:
+    t0 = perf_counter()
     base_result = _format_basecall_result(model.stride, stitched_batch_result["basecall_attrs"], rna=rna)
+    _profile_add(profile, "format_basecall_s", perf_counter() - t0)
+    if not emit_mods:
+        return base_result
 
-    device = next(model.parameters()).device
-    single_outputs = _build_single_read_outputs(stitched_batch_result["model_outputs"], device=device)
-    mod_prediction = model.predict_mods(single_outputs, mod_threshold=mod_threshold)[0]
-    mod_sequence, oriented_sites = _oriented_mod_predictions(mod_prediction, reverse_output=rna)
-    aligned_pairs = {
-        query_idx: target_idx
-        for query_idx, target_idx in _equal_alignment_pairs(mod_sequence, base_result["sequence"])
-    }
-
-    mapped_sites = []
-    for site in oriented_sites:
-        target_idx = aligned_pairs.get(int(site["oriented_index"]))
-        if target_idx is None:
-            continue
-        mapped_sites.append({**site, "base_index": int(target_idx)})
-
-    return {
-        **base_result,
-        "mods": _build_mod_tags(base_result["sequence"], mapped_sites),
-    }
+    t0 = perf_counter()
+    mapped_sites = _mod_sites_from_logits(
+        model,
+        stitched_batch_result["basecall_attrs"],
+        stitched_batch_result["model_outputs"]["mod_logits_by_base"],
+        rna=rna,
+        mod_threshold=mod_threshold,
+    )
+    mods = _build_mod_tags(base_result["sequence"], mapped_sites)
+    _profile_add(profile, "mod_tag_s", perf_counter() - t0)
+    _profile_add(profile, "reads_postprocessed", 1.0)
+    return {**base_result, "mods": mods}
 
 
 def basecall(
@@ -284,6 +313,8 @@ def basecall(
     reverse: bool = False,
     rna: bool = False,
     mod_threshold: float = 0.5,
+    emit_mods: bool = True,
+    profile: Dict[str, float] | None = None,
 ) -> Iterator[Tuple[object, Dict[str, object]]]:
     chunks = thread_iter(
         ((read, 0, read.signal.shape[-1]), chunk(torch.from_numpy(read.signal), chunksize, overlap))
@@ -291,7 +322,16 @@ def basecall(
     )
     batches = thread_iter(batchify(chunks, batchsize=batchsize))
     batch_results = thread_iter(
-        (read_info, _run_model_on_batch(model, batch, reverse=reverse))
+        (
+            read_info,
+            _run_model_on_batch(
+                model,
+                batch,
+                reverse=reverse,
+                emit_mods=emit_mods,
+                profile=profile,
+            ),
+        )
         for read_info, batch in batches
     )
     per_read_results = thread_iter(
@@ -306,13 +346,19 @@ def basecall(
                     model.stride,
                     reverse=False,
                 ),
-                "model_outputs": stitch_results(
-                    outputs["model_outputs"],
-                    end - start,
-                    chunksize,
-                    overlap,
-                    model.stride,
-                    reverse=False,
+                **(
+                    {
+                        "model_outputs": stitch_results(
+                            outputs["model_outputs"],
+                            end - start,
+                            chunksize,
+                            overlap,
+                            model.stride,
+                            reverse=False,
+                        )
+                    }
+                    if emit_mods
+                    else {}
                 ),
             },
         )
@@ -326,6 +372,8 @@ def basecall(
                 stitched_outputs,
                 rna=rna,
                 mod_threshold=mod_threshold,
+                emit_mods=emit_mods,
+                profile=profile,
             ),
         )
         for read, stitched_outputs in per_read_results

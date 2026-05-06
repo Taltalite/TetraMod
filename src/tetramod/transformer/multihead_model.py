@@ -343,10 +343,46 @@ class MultiHeadModel(torch.nn.Module):
             return features.transpose(0, 1)
         return features
 
+    @staticmethod
+    def _time_first_base_scores(base_scores: torch.Tensor, batch_size: int) -> torch.Tensor:
+        if base_scores.ndim == 3 and base_scores.shape[0] == batch_size and base_scores.shape[1] != batch_size:
+            return base_scores.transpose(0, 1)
+        return base_scores
+
+    def _encoder_children_before_crf(self) -> List[torch.nn.Module]:
+        if self._encoder_crf_child_name is None:
+            return []
+        children = []
+        for name, layer in self.encoder.named_children():
+            if name == self._encoder_crf_child_name:
+                break
+            children.append(layer)
+        return children
+
+    @staticmethod
+    def _contains_bonito_lstm(layers: List[torch.nn.Module]) -> bool:
+        return any(layer.__class__.__name__ == "LSTM" for layer in layers)
+
     def use_koi(self, **kwargs) -> None:
         crf = self._base_crf_encoder()
         if crf is None:
             raise RuntimeError("MultiHeadModel cannot enable koi without a LinearCRFEncoder.")
+
+        if self._native_crf_in_encoder:
+            feature_layers = self._encoder_children_before_crf()
+            if self._contains_bonito_lstm(feature_layers):
+                import koi.lstm
+
+                self.encoder = koi.lstm.update_graph(
+                    torch.nn.Sequential(*feature_layers),
+                    batchsize=kwargs["batchsize"],
+                    chunksize=kwargs["chunksize"] // self.stride,
+                    quantize=kwargs["quantize"],
+                )
+                self.crf = crf
+                self._encoder_crf_child_name = None
+                self._native_crf_in_encoder = False
+
         crf.expand_blanks = False
 
     def expand_base_scores(self, base_scores: torch.Tensor) -> torch.Tensor:
@@ -431,6 +467,7 @@ class MultiHeadModel(torch.nn.Module):
         self.load_state_dict(state_dict)
 
     def _encode_features_and_base_scores(self, x) -> Tuple[torch.Tensor, torch.Tensor]:
+        batch_size = int(x.shape[0])
         if hasattr(self, "encoder"):
             if self._native_crf_in_encoder:
                 features = x
@@ -439,18 +476,18 @@ class MultiHeadModel(torch.nn.Module):
                         break
                     features = layer(features)
                 base_scores = self._encoder_crf_layer()(features)
-                return self._batch_first_features(features, int(x.shape[0])), base_scores
+                return self._batch_first_features(features, batch_size), self._time_first_base_scores(base_scores, batch_size)
 
             features = self.encoder(x)
             base_scores = self.crf(features)
-            return self._batch_first_features(features, int(x.shape[0])), base_scores
+            return self._batch_first_features(features, batch_size), self._time_first_base_scores(base_scores, batch_size)
 
         features = self.conv(x)
         features = features.permute(0, 2, 1)
         for layer in self.encoder_layers:
             features = layer(features)
         base_scores = self.crf(features)
-        return features, base_scores
+        return features, self._time_first_base_scores(base_scores, batch_size)
 
     @staticmethod
     def _parse_cigar(cigar: str) -> List[Tuple[int, str]]:
