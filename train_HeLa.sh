@@ -27,49 +27,75 @@ python gen_data/convert_fast5_tar_to_pod5.py \
     --output-dir "$POD5_DIR" \
     --recursive \
     --jobs 8 \
-    > "$OUT_ROOT/logs/convert_fast5_to_pod5.log" 2>&1
+    > "/home/lijy/workspace/TetraMod/log/gen_data/convert_fast5_to_pod5_20260506.log" 2>&1
 
 # 2. Run the trained promoted model on HeLa POD5 and emit aligned modBAM.
+MODEL_DIR="/data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/tetramod_model/stage2_llp_run2/"
+REF_FASTA="/data/biolab-nvme-pcie2/lijy/HG002/hg38.fa"
+POD5_SINGLE="/data/biolab-nvme-pcie2/lijy/PRJNA1108269/HeLa_mRNA_Direct_rep.1/pod5_test_single/"
+RAW_BAM="/data/biolab-nvme-pcie2/lijy/PRJNA1108269/HeLa_mRNA_Direct_rep.1/tetramod_bam/pod5_test_single.bam"
 tetramod basecaller \
     "$MODEL_DIR" \
-    "$POD5_DIR" \
-    --device "$DEVICE" \
-    --weights "$WEIGHTS" \
+    "$POD5_SINGLE" \
+    --device cuda:0 \
+    --weights 10 \
     --recursive \
     --rna \
     --reference "$REF_FASTA" \
-    --mm2-preset "$MM2_PRESET" \
-    --alignment-threads "$ALIGN_THREADS" \
-    --mod-threshold "$MOD_THRESHOLD" \
-    --max-reads "$MAX_READS" \
-    > "$RAW_BAM" \
-    2> "$OUT_ROOT/logs/tetramod_basecaller.log"
+    --alignment-threads 4 \
+    --mod-threshold 0.5 \
+    > "$RAW_BAM"
 
-# 3. Sort and index the modBAM.
-samtools sort -@ "$SORT_THREADS" -o "$SORTED_BAM" "$RAW_BAM"
-samtools index "$SORTED_BAM"
+bonito basecaller \
+    /data/biolab-nvme-pcie2/lijy/bonito_models/rna002_70bps_sup@v3 \
+    --rna \
+    --reference "$REF_FASTA" \
+    "$POD5_SINGLE" \
+    > "/data/biolab-nvme-pcie2/lijy/PRJNA1108269/HeLa_mRNA_Direct_rep.1/bonito_bam/pod5_test_single.bam"
 
-# 4. Optional gold-site evaluation. Set GOLD_BED only if you have reliable
-# HeLa-compatible m6A site labels in the same reference coordinate system.
-if [[ -n "${GOLD_BED:-}" ]]; then
-    python validate/check_gold_coordinate_conventions.py \
-        --bam "$SORTED_BAM" \
-        --gold-bed "$GOLD_BED" \
-        --reference "$REF_FASTA" \
-        --output-dir "$OUT_ROOT/gold_convention_check" \
-        --mod-code a \
-        --canonical-base A \
-        --min-coverage "$MIN_COVERAGE"
 
-    python validate/evaluate_modbam_gold_sites.py \
-        --bam "$SORTED_BAM" \
-        --gold-bed "$GOLD_BED" \
-        --reference "$REF_FASTA" \
-        --output-dir "$OUT_ROOT/gold_eval" \
-        --mod-code a \
-        --canonical-base A \
-        --min-coverage "$MIN_COVERAGE" \
-        --prob-threshold "$MOD_THRESHOLD"
-fi
+# 3. compare tetramod vs bonito mod calls.
+VAL_OUT_DIR="/home/lijy/workspace/TetraMod/val_res/hela_rna002_tetramod_single/"
+TET_BAM="/data/biolab-nvme-pcie2/lijy/PRJNA1108269/HeLa_mRNA_Direct_rep.1/tetramod_bam/pod5_test_single.bam"
+BON_BAM="/data/biolab-nvme-pcie2/lijy/PRJNA1108269/HeLa_mRNA_Direct_rep.1/bonito_bam/pod5_test_single.bam"
+python validate/compare_basecaller_bams.py \
+    --tetramod-bam "$TET_BAM" \
+    --bonito-bam "$BON_BAM" \
+    --output-dir "$VAL_OUT_DIR/basecall_compare"
 
-echo "TetraMod HeLa RNA002 modBAM: $SORTED_BAM"
+
+# 4. check mod tag is being emitted in the tetramod BAM.
+samtools view "$TET_BAM" | \
+    awk 'BEGIN{n=0;m=0} {n++; if ($0 ~ /\tMM:Z:/ && $0 ~ /\tML:B:C/) m++} END{print "records",n,"with_MM_ML",m}'
+
+
+# 5.1 Gold-site test 先跑坐标约定检查
+GOLD_TSV="/data/biolab-nvme-pcie2/lijy/PRJNA1108269/m6A_HeLa.tsv"
+
+python validate/check_gold_coordinate_conventions.py \
+    --bam "$TET_BAM" \
+    --gold-bed "$GOLD_TSV" \
+    --gold-format m6aatlas \
+    --reference "$REF_FASTA" \
+    --output-dir "$VAL_OUT_DIR/m6a_gold_convention_check" \
+    --mod-code a \
+    --canonical-base A \
+    --min-coverage 5 \
+    --prob-threshold 0.5 \
+    --score-column mean_prob_zero_filled \
+    --motif ""
+
+
+# 5.2 Gold-site test 评估模型性能
+python validate/evaluate_modbam_gold_sites.py \
+    --bam "$TET_BAM" \
+    --gold-bed "$GOLD_TSV" \
+    --gold-format m6aatlas \
+    --reference "$REF_FASTA" \
+    --output-dir "$VAL_OUT_DIR/m6a_gold_evaluation" \
+    --mod-code a \
+    --canonical-base A \
+    --min-coverage 1 \
+    --prob-threshold 0.5 \
+    --score-column mean_prob_zero_filled \
+    --motif ""
