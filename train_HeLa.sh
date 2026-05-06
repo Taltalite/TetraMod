@@ -151,6 +151,7 @@ python validate/evaluate_modbam_gold_sites.py \
 
 
 # IVT baseline
+
 MODEL_DIR="/data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/tetramod_model/stage2_llp_run2/"
 IVT_POD5="/data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/converted_pod5/cc0"
 IVT_REF="/data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/GSE124309_FASTA_sequences_of_Curlcakes_4pole.fasta"
@@ -163,4 +164,24 @@ tetramod basecaller "$MODEL_DIR" "$IVT_POD5" \
     --reference "$IVT_REF" \
     --alignment-threads 4 \
     --mod-threshold 0.0 \
-    > ivt_unmod_tetramod.bam
+    > "/data/biolab-nvme-pcie2/lijy/PRJNA1108269/HeLa_mRNA_Direct_rep.1/tetramod_bam/curlcakes_cc0_test4000.bam"
+
+IVT_BAM="/data/biolab-nvme-pcie2/lijy/PRJNA1108269/HeLa_mRNA_Direct_rep.1/tetramod_bam/curlcakes_cc0_test4000.bam"
+IVT_REF="/data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/GSE124309_FASTA_sequences_of_Curlcakes_4pole.fasta"
+python validate/evaluate_modbam_negative_control.py \
+    --bam "$IVT_BAM" \
+    --reference "$IVT_REF" \
+    --output-dir val_res/curlcakes_cc0_test4000/negative_control_mincov5 \
+    --canonical-base A \
+    --mod-code a \
+    --min-coverage 5 \
+    --score-column mean_prob_zero_filled
+
+python validate/evaluate_modbam_negative_control.py \
+    --bam "$IVT_BAM" \
+    --reference "$IVT_REF" \
+    --output-dir val_res/curlcakes_cc0_test4000/negative_control_mincov1 \
+    --canonical-base A \
+    --mod-code a \
+    --min-coverage 1 \
+    --score-column mean_prob_zero_filled
