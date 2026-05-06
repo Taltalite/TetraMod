@@ -37,13 +37,13 @@ RAW_BAM="/data/biolab-nvme-pcie2/lijy/PRJNA1108269/HeLa_mRNA_Direct_rep.1/tetram
 tetramod basecaller \
     "$MODEL_DIR" \
     "$POD5_SINGLE" \
-    --device cuda:0 \
+    --device cuda:1 \
     --weights 10 \
     --recursive \
     --rna \
     --reference "$REF_FASTA" \
     --alignment-threads 4 \
-    --mod-threshold 0.5 \
+    --mod-threshold 0.0 \
     > "$RAW_BAM"
 
 bonito basecaller \
@@ -56,8 +56,8 @@ bonito basecaller \
 
 # 3. compare tetramod vs bonito mod calls.
 VAL_OUT_DIR="/home/lijy/workspace/TetraMod/val_res/hela_rna002_tetramod_single/"
-TET_BAM="/data/biolab-nvme-pcie2/lijy/PRJNA1108269/HeLa_mRNA_Direct_rep.1/tetramod_bam/pod5_test_single.bam"
-BON_BAM="/data/biolab-nvme-pcie2/lijy/PRJNA1108269/HeLa_mRNA_Direct_rep.1/bonito_bam/pod5_test_single.bam"
+TET_BAM="/data/biolab-nvme-pcie2/lijy/PRJNA1108269/HeLa_mRNA_Direct_rep.1/tetramod_bam/pod5_test_single.sorted.bam"
+BON_BAM="/data/biolab-nvme-pcie2/lijy/PRJNA1108269/HeLa_mRNA_Direct_rep.1/bonito_bam/pod5_test_single.sorted.bam"
 python validate/compare_basecaller_bams.py \
     --tetramod-bam "$TET_BAM" \
     --bonito-bam "$BON_BAM" \
@@ -99,3 +99,28 @@ python validate/evaluate_modbam_gold_sites.py \
     --prob-threshold 0.5 \
     --score-column mean_prob_zero_filled \
     --motif ""
+
+# 6.1 ReRun the trained promoted model on HeLa POD5 and emit aligned modBAM.
+MODEL_DIR="/data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/tetramod_model/stage2_llp_run2/"
+REF_FASTA="/data/biolab-nvme-pcie2/lijy/HG002/hg38.fa"
+POD5_SINGLE="/data/biolab-nvme-pcie2/lijy/PRJNA1108269/HeLa_mRNA_Direct_rep.1/pod5_test_15/"
+RAW_BAM="/data/biolab-nvme-pcie2/lijy/PRJNA1108269/HeLa_mRNA_Direct_rep.1/tetramod_bam/pod5_test_15.bam"
+tetramod basecaller \
+    "$MODEL_DIR" \
+    "$POD5_SINGLE" \
+    --device cuda:1 \
+    --weights 10 \
+    --recursive \
+    --rna \
+    --reference "$REF_FASTA" \
+    --alignment-threads 4 \
+    --mod-threshold 0.0 \
+    > "$RAW_BAM"
+
+
+bonito basecaller \
+    /data/biolab-nvme-pcie2/lijy/bonito_models/rna002_70bps_sup@v3 \
+    --rna \
+    --reference "$REF_FASTA" \
+    "$POD5_SINGLE" \
+    > "/data/biolab-nvme-pcie2/lijy/PRJNA1108269/HeLa_mRNA_Direct_rep.1/bonito_bam/pod5_test_15.bam"
