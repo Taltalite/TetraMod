@@ -27,6 +27,21 @@ class ModbamGoldSitesTest(unittest.TestCase):
         self.assertIn(("chr1", 9, "+"), gold)
         self.assertEqual(gold[("chr1", 9, "+")]["name"], "m6A_1")
 
+    def test_parse_chr_pos_ratio_tsv_uses_ratio_as_support(self):
+        from validate.evaluate_modbam_gold_sites import load_gold_sites
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            table = Path(tmpdir) / "gold.tsv"
+            table.write_text(
+                "chr\tpos\tstrand\tcontext\tratio\n"
+                "chr1\t14517\t-\tGGACT\t0.4145\n",
+                encoding="utf-8",
+            )
+            gold = load_gold_sites(table, gold_format="auto")
+
+        self.assertIn(("chr1", 14516, "-"), gold)
+        self.assertAlmostEqual(gold[("chr1", 14516, "-")]["support"], 0.4145)
+
     def test_fallback_mm_ml_parser_returns_query_probabilities(self):
         from validate.evaluate_modbam_gold_sites import fallback_parse_mm_ml
 
@@ -114,7 +129,9 @@ class ModbamGoldSitesTest(unittest.TestCase):
         self.assertEqual(metrics["num_negative"], 1)
         self.assertEqual(metrics["threshold_metrics"]["tp"], 1)
         self.assertEqual(metrics["threshold_metrics"]["tn"], 1)
+        self.assertEqual(metrics["threshold_metrics"]["fpr"], 0.0)
         self.assertEqual(metrics["roc_auc"], 1.0)
+        self.assertIn("0.01", metrics["tpr_at_fpr"])
 
 
 if __name__ == "__main__":

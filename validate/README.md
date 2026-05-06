@@ -43,7 +43,10 @@ python validate/evaluate_modbam_gold_sites.py \
 ```
 
 The evaluator writes `site_level_predictions.tsv`, positive/negative site TSVs,
-`summary.json`, `summary.txt`, and PNG plots when matplotlib is available.
+`threshold_sweep.tsv`, `summary.json`, `summary.txt`, and PNG plots when
+matplotlib is available. The threshold sweep reports TP/TN/FP/FN, FPR,
+specificity, precision, recall, FDR, and F1 from score thresholds 0.00 to 1.00.
+The plot set includes the full ROC curve and a low-FPR ROC view.
 
 To check coordinate and strand conventions, run:
 

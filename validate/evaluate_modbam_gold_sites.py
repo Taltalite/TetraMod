@@ -148,7 +148,17 @@ def parse_m6a_atlas_gold(path: Path, *, ignore_strand: bool = False) -> Dict[Sit
         strand_col = _pick_column(reader.fieldnames, ["strand"])
         support_col = _pick_column(
             reader.fieldnames,
-            ["techniquenum", "technique num", "conditionnum", "condition num", "support", "score"],
+            [
+                "techniquenum",
+                "technique num",
+                "conditionnum",
+                "condition num",
+                "support",
+                "score",
+                "ratio",
+                "modratio",
+                "modificationratio",
+            ],
         )
         id_col = _pick_column(reader.fieldnames, ["id", "siteid", "name"])
 
@@ -512,6 +522,14 @@ def sklearn_curves(y_true: np.ndarray, y_score: np.ndarray) -> Dict[str, object]
     }
 
 
+def standardized_partial_auc(y_true: np.ndarray, y_score: np.ndarray, max_fpr: float) -> Optional[float]:
+    metrics = require_sklearn_metrics()
+    y_true = y_true.astype(np.int64)
+    if len(np.unique(y_true)) < 2:
+        return None
+    return float(metrics["roc_auc_score"](y_true, y_score, max_fpr=float(max_fpr)))
+
+
 def threshold_metrics(y_true: np.ndarray, y_score: np.ndarray, threshold: float) -> Dict[str, float]:
     metrics = require_sklearn_metrics()
     y_pred = (y_score >= threshold).astype(np.int64)
@@ -523,6 +541,7 @@ def threshold_metrics(y_true: np.ndarray, y_score: np.ndarray, threshold: float)
         "tn": tn,
         "fp": fp,
         "fn": fn,
+        "fpr": safe_div(fp, fp + tn),
         "accuracy": float(metrics["accuracy_score"](y_true, y_pred)),
         "precision": float(metrics["precision_score"](y_true, y_pred, zero_division=0)),
         "recall": float(metrics["recall_score"](y_true, y_pred, zero_division=0)),
@@ -530,6 +549,45 @@ def threshold_metrics(y_true: np.ndarray, y_score: np.ndarray, threshold: float)
         "f1": float(metrics["f1_score"](y_true, y_pred, zero_division=0)),
         "fdr": safe_div(fp, tp + fp),
     }
+
+
+def threshold_sweep_metrics(
+    y_true: np.ndarray,
+    y_score: np.ndarray,
+    thresholds: Sequence[float],
+) -> List[Dict[str, float]]:
+    return [threshold_metrics(y_true, y_score, float(threshold)) for threshold in thresholds]
+
+
+def tpr_at_fpr_levels(y_true: np.ndarray, y_score: np.ndarray, fpr_levels: Sequence[float]) -> Dict[str, object]:
+    curves = sklearn_curves(y_true, y_score)
+    if curves["roc_auc"] is None:
+        return {
+            str(level): {
+                "tpr": 0.0,
+                "threshold": None,
+            }
+            for level in fpr_levels
+        }
+
+    fpr = np.asarray(curves["fpr"], dtype=np.float64)
+    tpr = np.asarray(curves["tpr"], dtype=np.float64)
+    thresholds = np.asarray(curves["thresholds"]["roc"], dtype=np.float64)
+    result = {}
+    for level in fpr_levels:
+        eligible = np.where(fpr <= float(level))[0]
+        if not eligible.size:
+            result[str(level)] = {
+                "tpr": 0.0,
+                "threshold": None,
+            }
+            continue
+        best = eligible[np.argmax(tpr[eligible])]
+        result[str(level)] = {
+            "tpr": float(tpr[best]),
+            "threshold": float(thresholds[best]) if np.isfinite(thresholds[best]) else None,
+        }
+    return result
 
 
 def sensitivity_at_fdr(y_true: np.ndarray, y_score: np.ndarray, fdr_levels: Sequence[float]) -> Dict[str, float]:
@@ -574,11 +632,29 @@ def compute_metrics(rows: List[Dict[str, object]], threshold: float) -> Dict[str
         "num_negative": int((1 - y_true).sum()),
         "roc_auc": curves["roc_auc"],
         "pr_auc": curves["pr_auc"],
+        "partial_roc_auc": {
+            "max_fpr_0.01": standardized_partial_auc(y_true, y_score, 0.01) if len(rows) else None,
+            "max_fpr_0.05": standardized_partial_auc(y_true, y_score, 0.05) if len(rows) else None,
+            "max_fpr_0.10": standardized_partial_auc(y_true, y_score, 0.10) if len(rows) else None,
+        },
         "threshold_metrics": threshold_metrics(y_true, y_score, threshold) if len(rows) else {},
+        "tpr_at_fpr": tpr_at_fpr_levels(y_true, y_score, [0.001, 0.005, 0.01, 0.05, 0.10]) if len(rows) else {},
         "sensitivity_at_fdr": sensitivity_at_fdr(y_true, y_score, [0.01, 0.05, 0.10]),
         "top_n_gold_fraction": top_n_hits(y_true, y_score, [100, 500, 1000, 5000]),
     }
     return metrics
+
+
+def default_thresholds() -> List[float]:
+    return [round(float(value), 4) for value in np.linspace(0.0, 1.0, 101)]
+
+
+def compute_threshold_sweep(rows: List[Dict[str, object]], thresholds: Sequence[float]) -> List[Dict[str, float]]:
+    if not rows:
+        return []
+    y_true = np.asarray([int(row["is_gold"]) for row in rows], dtype=np.int64)
+    y_score = np.asarray([float(row["score"]) for row in rows], dtype=np.float32)
+    return threshold_sweep_metrics(y_true, y_score, thresholds)
 
 
 def write_tsv(path: Path, rows: List[Dict[str, object]], fieldnames: Sequence[str]) -> None:
@@ -620,6 +696,20 @@ def save_plots(rows: List[Dict[str, object]], output_dir: Path, threshold: float
         ax.legend()
         ax.grid(alpha=0.2)
         path = output_dir / "roc_curve.png"
+        fig.savefig(path, dpi=180, bbox_inches="tight")
+        plt.close(fig)
+        written.append(path.name)
+
+        fig, ax = plt.subplots(figsize=(5.5, 5))
+        ax.plot(curves["fpr"], curves["tpr"], color="#2c7fb8", label=f"AUC={curves['roc_auc']:.4f}")
+        ax.set_xlim(-0.001, 0.10)
+        ax.set_ylim(0, 1.02)
+        ax.set_xlabel("False positive rate")
+        ax.set_ylabel("True positive rate")
+        ax.set_title("ROC curve, low-FPR region")
+        ax.legend()
+        ax.grid(alpha=0.2)
+        path = output_dir / "roc_curve_low_fpr.png"
         fig.savefig(path, dpi=180, bbox_inches="tight")
         plt.close(fig)
         written.append(path.name)
@@ -684,6 +774,8 @@ def save_plots(rows: List[Dict[str, object]], output_dir: Path, threshold: float
 def build_text_summary(summary: Dict[str, object]) -> str:
     metrics = summary["metrics"]
     tm = metrics["threshold_metrics"]
+    partial_auc = metrics.get("partial_roc_auc", {})
+    tpr_at_fpr = metrics.get("tpr_at_fpr", {})
     lines = [
         "[inputs]",
         f"bam: {summary['inputs']['bam']}",
@@ -701,11 +793,19 @@ def build_text_summary(summary: Dict[str, object]) -> str:
         f"score_column: {summary['settings']['score_column']}",
         f"roc_auc: {metrics['roc_auc']}",
         f"pr_auc: {metrics['pr_auc']}",
+        f"partial_roc_auc_max_fpr_0.01: {partial_auc.get('max_fpr_0.01')}",
+        f"partial_roc_auc_max_fpr_0.05: {partial_auc.get('max_fpr_0.05')}",
+        f"partial_roc_auc_max_fpr_0.10: {partial_auc.get('max_fpr_0.10')}",
         f"threshold: {tm.get('threshold')}",
+        f"fpr: {tm.get('fpr')}",
+        f"specificity: {tm.get('specificity')}",
         f"precision: {tm.get('precision')}",
         f"recall: {tm.get('recall')}",
         f"f1: {tm.get('f1')}",
         f"fdr: {tm.get('fdr')}",
+        f"tpr_at_fpr_0.001: {tpr_at_fpr.get('0.001')}",
+        f"tpr_at_fpr_0.01: {tpr_at_fpr.get('0.01')}",
+        f"tpr_at_fpr_0.05: {tpr_at_fpr.get('0.05')}",
     ]
     return "\n".join(lines) + "\n"
 
@@ -744,6 +844,7 @@ def main(args) -> None:
         threshold=args.prob_threshold,
     )
     metrics = compute_metrics(rows, args.prob_threshold)
+    threshold_sweep = compute_threshold_sweep(rows, default_thresholds())
 
     fieldnames = [
         "chrom",
@@ -765,6 +866,24 @@ def main(args) -> None:
     write_tsv(output_dir / "site_level_predictions.tsv", rows, fieldnames)
     write_tsv(output_dir / "gold_overlap.tsv", [row for row in rows if int(row["is_gold"]) == 1], fieldnames)
     write_tsv(output_dir / "negative_sites.tsv", [row for row in rows if int(row["is_gold"]) == 0], fieldnames)
+    write_tsv(
+        output_dir / "threshold_sweep.tsv",
+        threshold_sweep,
+        [
+            "threshold",
+            "tp",
+            "tn",
+            "fp",
+            "fn",
+            "fpr",
+            "specificity",
+            "precision",
+            "recall",
+            "f1",
+            "fdr",
+            "accuracy",
+        ],
+    )
 
     covered_gold_keys = set(stats) & set(gold)
     covered_gold_after_filter = {
@@ -802,6 +921,7 @@ def main(args) -> None:
             "gold_sites_uncovered_before_filter": int(len(set(gold) - covered_gold_keys)),
         },
         "metrics": metrics,
+        "threshold_sweep_tsv": str((output_dir / "threshold_sweep.tsv").resolve()),
         "plots": plots,
     }
     with (output_dir / "summary.json").open("w", encoding="utf-8") as handle:
