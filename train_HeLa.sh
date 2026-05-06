@@ -124,3 +124,26 @@ bonito basecaller \
     --reference "$REF_FASTA" \
     "$POD5_SINGLE" \
     > "/data/biolab-nvme-pcie2/lijy/PRJNA1108269/HeLa_mRNA_Direct_rep.1/bonito_bam/pod5_test_15.bam"
+
+
+python validate/compare_basecaller_bams.py \
+    --tetramod-bam /data/biolab-nvme-pcie2/lijy/PRJNA1108269/HeLa_mRNA_Direct_rep.1/tetramod_bam/pod5_test_15.sorted.bam \
+    --bonito-bam /data/biolab-nvme-pcie2/lijy/PRJNA1108269/HeLa_mRNA_Direct_rep.1/bonito_bam/pod5_test_15.sorted.bam \
+    --output-dir val_res/hela_rna002_tetramod_15/basecall_compare
+
+
+GOLD_TSV="/data/biolab-nvme-pcie2/lijy/PRJNA1108269/m6A_HeLa.tsv"
+TETRA_BAM="/data/biolab-nvme-pcie2/lijy/PRJNA1108269/HeLa_mRNA_Direct_rep.1/tetramod_bam/pod5_test_15.sorted.bam"
+REF_FASTA="/data/biolab-nvme-pcie2/lijy/HG002/hg38.fa"
+
+python validate/evaluate_modbam_gold_sites.py \
+    --bam "$TETRA_BAM" \
+    --gold-bed "$GOLD_TSV" \
+    --gold-format auto \
+    --reference "$REF_FASTA" \
+    --output-dir val_res/hela_rna002_tetramod_15/m6a_gold_eval_mincov5 \
+    --canonical-base A \
+    --mod-code a \
+    --min-coverage 5 \
+    --score-column mean_prob_zero_filled \
+    --prob-threshold 0.5
