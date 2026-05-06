@@ -23,6 +23,11 @@ from typing import Dict, Iterable, Iterator, List, Optional, Sequence, Tuple
 import numpy as np
 import pysam
 
+try:
+    from tqdm import tqdm
+except ImportError:  # pragma: no cover - optional user-facing progress only.
+    tqdm = None
+
 
 SiteKey = Tuple[str, int, str]
 GoldInfo = Dict[str, object]
@@ -65,6 +70,12 @@ class SiteStats:
 
 def safe_div(numerator: float, denominator: float) -> float:
     return float(numerator) / float(denominator) if denominator else 0.0
+
+
+def progress_iter(iterable, *, desc: str, total: Optional[int] = None, enabled: bool = True):
+    if not enabled or tqdm is None:
+        return iterable
+    return tqdm(iterable, desc=desc, total=total, unit="item")
 
 
 def normalize_base(base: str, *, keep_u: bool = False) -> str:
@@ -358,6 +369,7 @@ def aggregate_modbam_sites(
     fasta=None,
     motif: Optional[re.Pattern] = None,
     motif_kmer_size: int = 5,
+    show_progress: bool = True,
 ) -> Tuple[Dict[SiteKey, SiteStats], Dict[str, int]]:
     stats: Dict[SiteKey, SiteStats] = defaultdict(SiteStats)
     counters = {
@@ -371,7 +383,8 @@ def aggregate_modbam_sites(
     canonical_base = canonical_base.upper()
 
     with pysam.AlignmentFile(str(bam_path), "rb", check_sq=False) as bam:
-        for record in bam.fetch(until_eof=True):
+        records = progress_iter(bam.fetch(until_eof=True), desc="Aggregating BAM records", enabled=show_progress)
+        for record in records:
             counters["records_seen"] += 1
             if record.is_unmapped:
                 counters["records_skipped_unmapped"] += 1
@@ -430,9 +443,16 @@ def build_site_rows(
     min_coverage: int,
     score_column: str,
     threshold: float,
+    show_progress: bool = True,
 ) -> List[Dict[str, object]]:
     rows = []
-    for key, site_stats in sorted(stats.items()):
+    items = sorted(stats.items())
+    for key, site_stats in progress_iter(
+        items,
+        desc="Building site-level rows",
+        total=len(items),
+        enabled=show_progress,
+    ):
         if site_stats.coverage < min_coverage:
             continue
         chrom, start, strand = key
@@ -831,6 +851,7 @@ def main(args) -> None:
             fasta=fasta,
             motif=motif,
             motif_kmer_size=args.motif_kmer_size,
+            show_progress=not args.no_progress,
         )
     finally:
         if fasta is not None:
@@ -842,6 +863,7 @@ def main(args) -> None:
         min_coverage=args.min_coverage,
         score_column=args.score_column,
         threshold=args.prob_threshold,
+        show_progress=not args.no_progress,
     )
     metrics = compute_metrics(rows, args.prob_threshold)
     threshold_sweep = compute_threshold_sweep(rows, default_thresholds())
@@ -955,6 +977,7 @@ def argparser() -> ArgumentParser:
     parser.add_argument("--keep-u", action="store_true", default=False)
     parser.add_argument("--motif", default=None, help="Optional motif filter: DRACH, RRACH, or a regex.")
     parser.add_argument("--motif-kmer-size", type=int, default=5)
+    parser.add_argument("--no-progress", action="store_true", default=False, help="Disable tqdm progress bars.")
     parser.add_argument("--no-plots", action="store_true", default=False)
     return parser
 
