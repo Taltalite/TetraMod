@@ -532,6 +532,150 @@ class TetramodCliSmokeTest(unittest.TestCase):
         self.assertEqual(mod_targets[0, 1], -100)
         self.assertEqual(mod_targets[0, 4], -100)
 
+    def test_mafia_synthetic_manifest_parses_center_m6a(self):
+        mafia = load_repo_script("gen_data/create_mafia_synthetic_stage1_dataset.py")
+
+        sequence, center = mafia.parse_modified_sequence("GGACU/m6AGGACC")
+
+        self.assertEqual(sequence, "GGACTAGGACC")
+        self.assertEqual(center, 5)
+        self.assertEqual(sequence[center], "A")
+
+        plain_sequence, plain_center = mafia.parse_modified_sequence("CCGGACTAA", center_index=4)
+        self.assertEqual(plain_sequence, "CCGGACTAA")
+        self.assertEqual(plain_center, 4)
+
+    def test_mafia_synthetic_matches_only_controlled_centers(self):
+        import numpy as np
+
+        mafia = load_repo_script("gen_data/create_mafia_synthetic_stage1_dataset.py")
+        oligo = mafia.OligoSpec(
+            oligo_id="RL_M0_S0",
+            sequence="GGACT",
+            center_index=2,
+            motif="GGACT",
+            ligation_strategy="random_ligation",
+        )
+        run = mafia.RunSpec(
+            run_id="run_mod",
+            accession="ERR0",
+            local_name="run_mod",
+            modification_status="modified",
+            ligation_strategy="random_ligation",
+            oligo_ids=("RL_M0_S0",),
+        )
+
+        units = mafia.find_oligo_units(
+            "TTTGGACTAAA",
+            [oligo],
+            run,
+            min_identity=1.0,
+            max_mismatches=0,
+            allow_reverse_match=False,
+        )
+        self.assertEqual(len(units), 1)
+        self.assertEqual(units[0].center_index, 5)
+        self.assertEqual(units[0].label, mafia.M6A_LABEL)
+
+        emitted = np.arange(0, 55, 5, dtype=np.int64)
+        assigned = mafia.assign_units_to_windows(units, emitted, [(0, 30), (25, 55)])
+        self.assertEqual(len(assigned), 1)
+        self.assertEqual(next(iter(assigned.values()))[0].oligo.oligo_id, "RL_M0_S0")
+
+    def test_mafia_synthetic_run_manifest_supports_mixed_labels(self):
+        mafia = load_repo_script("gen_data/create_mafia_synthetic_stage1_dataset.py")
+        mixed = mafia.RunSpec(
+            run_id="test1",
+            accession="ERR1",
+            local_name="test1",
+            modification_status="mixed",
+            ligation_strategy="random_ligation",
+            oligo_ids=("RL_M4_S0", "RL_M5_S0"),
+            modified_oligo_ids=("RL_M4_S0",),
+        )
+
+        self.assertEqual(mafia.label_for_match(mixed, "RL_M4_S0"), mafia.M6A_LABEL)
+        self.assertEqual(mafia.label_for_match(mixed, "RL_M5_S0"), mafia.CANONICAL_A_LABEL)
+
+    def test_mafia_stage1_merger_balances_train_split(self):
+        import subprocess
+        import sys
+        import tempfile
+
+        import numpy as np
+
+        def write_dataset(directory, label_value, status):
+            directory.mkdir(parents=True)
+            n = 8
+            np.save(directory / "chunks.npy", np.ones((n, 8), dtype=np.float16))
+            np.save(directory / "references.npy", np.asarray([[1, 2, 1]] * n, dtype=np.uint8))
+            np.save(directory / "reference_lengths.npy", np.full((n,), 3, dtype=np.uint16))
+            mod_targets = np.full((n, 3), -100, dtype=np.int16)
+            mod_targets[:, 1] = label_value
+            np.save(directory / "mod_targets.npy", mod_targets)
+            np.savez(
+                directory / "metadata.npz",
+                record_id=np.asarray([f"{status}_{idx}" for idx in range(n)], dtype=str),
+                pod5_read_id=np.asarray([f"pod5_{status}_{idx}" for idx in range(n)], dtype=str),
+                run_id=np.asarray([f"run_{status}"] * n, dtype=str),
+                contig=np.asarray(["mafia_synthetic"] * n, dtype=str),
+                primary_site_key=np.asarray([f"oligo:{idx}:1:A" for idx in range(n)], dtype=str),
+                kmer_context=np.asarray(["GGACT"] * n, dtype=str),
+                motif_context=np.asarray(["GGACT"] * n, dtype=str),
+                oligo_ids=np.asarray(["oligo"] * n, dtype=str),
+                oligo_motifs=np.asarray(["GGACT"] * n, dtype=str),
+                oligo_orientations=np.asarray(["+"] * n, dtype=str),
+                modification_status=np.asarray([status] * n, dtype=str),
+                ligation_strategy=np.asarray(["random_ligation"] * n, dtype=str),
+                ref_start=np.zeros((n,), dtype=np.int64),
+                ref_end=np.full((n,), 3, dtype=np.int64),
+                ref_strand=np.ones((n,), dtype=np.int8),
+                chunk_start=np.zeros((n,), dtype=np.int64),
+                chunk_end=np.full((n,), 8, dtype=np.int64),
+                primary_site_pos=np.ones((n,), dtype=np.int64),
+                mean_qscore=np.full((n,), 12.0, dtype=np.float32),
+                mapping_accuracy=np.ones((n,), dtype=np.float32),
+                mapping_coverage=np.ones((n,), dtype=np.float32),
+                labeled_center_count=np.ones((n,), dtype=np.int16),
+                positive_center_count=np.full((n,), int(label_value == 4), dtype=np.int16),
+                negative_center_count=np.full((n,), int(label_value == 0), dtype=np.int16),
+            )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            pos = root / "pos"
+            neg = root / "neg"
+            out = root / "merged"
+            write_dataset(pos, 4, "modified")
+            write_dataset(neg, 0, "unmodified")
+
+            subprocess.run(
+                [
+                    sys.executable,
+                    "gen_data/merge_mafia_stage1_datasets.py",
+                    "--dataset",
+                    f"pos:{pos}",
+                    "--dataset",
+                    f"neg:{neg}",
+                    "--output-dir",
+                    str(out),
+                    "--valid-fraction",
+                    "0.25",
+                    "--seed",
+                    "3",
+                ],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+
+            train_mods = np.load(out / "mod_targets.npy")
+            valid_mods = np.load(out / "validation" / "mod_targets.npy")
+            self.assertEqual(int((train_mods == 4).sum()), int((train_mods == 0).sum()))
+            self.assertGreater(int((valid_mods == 4).sum()), 0)
+            self.assertGreater(int((valid_mods == 0).sum()), 0)
+
     def test_real_llp_ratio_ivt_builder_parses_fractional_runs(self):
         builder = load_repo_script("gen_data/build_real_llp_from_ratio_ivt.py")
 
