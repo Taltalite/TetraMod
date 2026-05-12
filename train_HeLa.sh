@@ -132,21 +132,9 @@ python validate/compare_basecaller_bams.py \
     --output-dir val_res/hela_rna002_tetramod_15/basecall_compare
 
 
-GOLD_TSV="/data/biolab-nvme-pcie2/lijy/PRJNA1108269/m6A_HeLa.tsv"
-TETRA_BAM="/data/biolab-nvme-pcie2/lijy/PRJNA1108269/HeLa_mRNA_Direct_rep.1/tetramod_bam/pod5_test_15.sorted.bam"
-REF_FASTA="/data/biolab-nvme-pcie2/lijy/HG002/hg38.fa"
 
-python validate/evaluate_modbam_gold_sites.py \
-    --bam "$TETRA_BAM" \
-    --gold-bed "$GOLD_TSV" \
-    --gold-format auto \
-    --reference "$REF_FASTA" \
-    --output-dir val_res/hela_rna002_tetramod_15/m6a_gold_eval_mincov5 \
-    --canonical-base A \
-    --mod-code a \
-    --min-coverage 5 \
-    --score-column mean_prob_zero_filled \
-    --prob-threshold 0.5
+
+
 
 
 
@@ -185,3 +173,20 @@ python validate/evaluate_modbam_negative_control.py \
     --mod-code a \
     --min-coverage 1 \
     --score-column mean_prob_zero_filled
+
+
+MODEL_DIR="/data/biolab-nvme-pcie2/lijy/curlcakes/rna002_m6A/tetramod_model/stage1_control_run1/"
+REF_FASTA="/data/biolab-nvme-pcie2/lijy/HG002/hg38.fa"
+POD5_SINGLE="/data/biolab-nvme-pcie2/lijy/PRJNA1108269/HeLa_mRNA_Direct_rep.1/pod5_test_15/"
+RAW_BAM="/data/biolab-nvme-pcie2/lijy/PRJNA1108269/HeLa_mRNA_Direct_rep.1/tetramod_bam/pod5_stage1_test_15.bam"
+tetramod basecaller \
+    "$MODEL_DIR" \
+    "$POD5_SINGLE" \
+    --device cuda:1 \
+    --weights 10 \
+    --recursive \
+    --rna \
+    --reference "$REF_FASTA" \
+    --alignment-threads 4 \
+    --mod-threshold 0.0 \
+    > "$RAW_BAM"
