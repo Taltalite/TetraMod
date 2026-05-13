@@ -176,3 +176,46 @@ tetramod train_promote "$WORK_ROOT/models/stage1_mafia_wue_rl" \
     --batch 64 \
     --epochs 20 \
     --device cuda:0
+
+
+# 运行 validation 评估
+
+WORK_ROOT=/data/biolab-nvme-pcie2/lijy/tetramod_mafia_rna002
+MODEL_DIR="$WORK_ROOT/models/stage1_mafia_wue_rl"
+DATA_DIR="$WORK_ROOT/chunks/stage1_train_mafia_wue_rl"
+
+python validate/evaluate_mafia_stage1.py "$MODEL_DIR" \
+  --dataset-dir "$DATA_DIR" \
+  --split validation \
+  --weights 5 \
+  --device cuda:0 \
+  --batchsize 64 \
+  --num-workers 4 \
+  --output-dir "val_res/mafia_stage1_epoch5" \
+  --write-sites
+
+# 制作用于 validat 的数据集
+
+WORK_ROOT=/data/biolab-nvme-pcie2/lijy/tetramod_mafia_rna002
+REPO=/home/lijy/workspace/TetraMod
+cd "$REPO"
+
+for RUN_ID in \
+  WUE_splint_batch2_A_RTA \
+  WUE_splint_batch2_m6A_RTA \
+  WUE_splint_batch2_m6A_RTA_1 \
+  WUE_splint_batch2_m6A_RTA_2
+do
+  python gen_data/create_mafia_synthetic_stage1_dataset.py \
+    --bam-file "$WORK_ROOT/bam/$RUN_ID.sorted.bam" \
+    --pod5-dir "$WORK_ROOT/pod5/$RUN_ID" \
+    --output-dir "$WORK_ROOT/chunks/per_run/$RUN_ID" \
+    --oligo-manifest "$REPO/gen_data/mafia_oligos.tsv" \
+    --run-manifest "$REPO/gen_data/mafia_runs.tsv" \
+    --run-id "$RUN_ID" \
+    --sample-type rna \
+    --rna002 \
+    --chunk-len 5000 \
+    --overlap 500 \
+    --workers 8
+done
