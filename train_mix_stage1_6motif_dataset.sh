@@ -9,7 +9,17 @@ set -Eeuo pipefail
 # Final heldout is prepared as per-run datasets only and is NOT merged into train:
 #   Mix_1_A_RTA, Mix_2_m6A_RTA, Mix_3_A_RTA, Mix_4_m6A_RTA
 #
-# Edit the path block below for the remote server before running.
+# The workflow is split for multi-server use:
+#   STAGE=pod5       only converts original mAFiA FAST5/TAR data to POD5.
+#   STAGE=downstream runs Dorado, builds per-run datasets, merges train, and checks balance.
+#   STAGE=all        runs both stages on one server.
+#
+# Typical multi-server use:
+#   1. On the server with MAFIA_ROOT:
+#        STAGE=pod5 bash train_mix_stage1_6motif_dataset.sh
+#   2. Sync $WORK_ROOT/pod5 to the GPU/downstream server.
+#   3. On the GPU/downstream server:
+#        STAGE=downstream bash train_mix_stage1_6motif_dataset.sh
 
 REPO="${REPO:-/home/lijy/workspace/TetraMod/}"
 MAFIA_ROOT="${MAFIA_ROOT:-/data/biolab-backup-hdd2/public_data/mAFia_RNA002_PRJEB74106/HEK293}"
@@ -17,6 +27,7 @@ WORK_ROOT="${WORK_ROOT:-/data/biolab-nvme-pcie2/lijy/tetramod_mafia_rna002}"
 DORADO_BIN="${DORADO_BIN:-/home/zhaoxy/workspace/software/dorado-0.9.0-linux-x64/bin/dorado}"
 DORADO_MODEL="${DORADO_MODEL:-/home/lijy/workspace/TetraMod/src/tetramod/models/rna002_70bps_sup@v3/rna002_70bps_sup@v3}"
 
+STAGE="${STAGE:-all}"
 DEVICE="${DEVICE:-cuda:0}"
 POD5_JOBS="${POD5_JOBS:-4}"
 DATASET_WORKERS="${DATASET_WORKERS:-8}"
@@ -205,16 +216,24 @@ run_dataset_check() {
     --output-dir "$CHECK_REPORT_DIR"
 }
 
-main() {
-  fail_if_placeholder REPO "$REPO"
-  fail_if_placeholder MAFIA_ROOT "$MAFIA_ROOT"
-  fail_if_placeholder WORK_ROOT "$WORK_ROOT"
-  fail_if_placeholder DORADO_BIN "$DORADO_BIN"
-  fail_if_placeholder DORADO_MODEL "$DORADO_MODEL"
-  require_file "$REPO"
-  require_file "$MAFIA_ROOT"
-  require_file "$DORADO_BIN"
+all_requested_runs() {
+  printf '%s\n' "${TRAIN_RUNS[@]}"
+  if [[ "$BUILD_HELDOUT" == "1" ]]; then
+    printf '%s\n' "${HELDOUT_RUNS[@]}"
+  fi
+}
 
+validate_stage() {
+  case "$STAGE" in
+    pod5|downstream|all) ;;
+    *)
+      echo "[error] STAGE must be one of: pod5, downstream, all. Current: $STAGE" >&2
+      exit 1
+      ;;
+  esac
+}
+
+prepare_common_dirs() {
   mkdir -p \
     "$WORK_ROOT/manifests" \
     "$WORK_ROOT/pod5" \
@@ -223,11 +242,23 @@ main() {
     "$WORK_ROOT/chunks" \
     "$WORK_ROOT/models"
 
+  if [[ "$BUILD_HELDOUT" == "1" ]]; then
+    mkdir -p "$HELDOUT_DATASET_ROOT"
+  fi
+}
+
+prepare_repo_context() {
+  fail_if_placeholder REPO "$REPO"
+  fail_if_placeholder WORK_ROOT "$WORK_ROOT"
+  require_file "$REPO"
   cd "$REPO"
   require_file "$OLIGO_MANIFEST"
   require_file "$RUN_MANIFEST"
+}
 
+print_config() {
   echo "[config]"
+  echo "  STAGE=$STAGE"
   echo "  REPO=$REPO"
   echo "  MAFIA_ROOT=$MAFIA_ROOT"
   echo "  WORK_ROOT=$WORK_ROOT"
@@ -237,24 +268,38 @@ main() {
   echo "  CHUNK_LEN=$CHUNK_LEN OVERLAP=$OVERLAP"
   echo "  TRAIN_DATASET_DIR=$TRAIN_DATASET_DIR"
   echo "  HELDOUT_DATASET_ROOT=$HELDOUT_DATASET_ROOT"
+}
+
+run_pod5_stage() {
+  fail_if_placeholder MAFIA_ROOT "$MAFIA_ROOT"
+  require_file "$MAFIA_ROOT"
 
   python gen_data/create_mafia_synthetic_stage1_dataset.py \
     --write-template-manifest "$WORK_ROOT/manifests"
 
-  local all_runs=("${TRAIN_RUNS[@]}")
-  if [[ "$BUILD_HELDOUT" == "1" ]]; then
-    all_runs+=("${HELDOUT_RUNS[@]}")
-    mkdir -p "$HELDOUT_DATASET_ROOT"
-  fi
+  local run_id
+  while IFS= read -r run_id; do
+    convert_run_to_pod5 "$run_id"
+  done < <(all_requested_runs)
+
+  echo "[done] POD5 files are under: $WORK_ROOT/pod5"
+  echo "Sync this directory to the downstream server before running STAGE=downstream."
+}
+
+run_downstream_stage() {
+  fail_if_placeholder DORADO_BIN "$DORADO_BIN"
+  fail_if_placeholder DORADO_MODEL "$DORADO_MODEL"
+  require_file "$DORADO_BIN"
+  require_file "$DORADO_MODEL"
 
   local run_id
-  for run_id in "${all_runs[@]}"; do
-    convert_run_to_pod5 "$run_id"
-  done
+  while IFS= read -r run_id; do
+    require_file "$WORK_ROOT/pod5/$run_id"
+  done < <(all_requested_runs)
 
-  for run_id in "${all_runs[@]}"; do
+  while IFS= read -r run_id; do
     basecall_and_sort_run "$run_id"
-  done
+  done < <(all_requested_runs)
 
   for run_id in "${TRAIN_RUNS[@]}"; do
     build_per_run_dataset "$run_id" "$WORK_ROOT/chunks/per_run/$run_id"
@@ -270,6 +315,10 @@ main() {
   write_run_lists
   run_dataset_check
 
+  if [[ "$BUILD_HELDOUT" == "1" ]]; then
+    printf '%s\n' "${HELDOUT_RUNS[@]}" > "$HELDOUT_DATASET_ROOT/final_heldout_run_ids.txt"
+  fi
+
   echo "[done] 6 motif train dataset: $TRAIN_DATASET_DIR"
   if [[ "$BUILD_HELDOUT" == "1" ]]; then
     echo "[done] final heldout per-run datasets: $HELDOUT_DATASET_ROOT"
@@ -280,6 +329,21 @@ main() {
   echo
   echo "Use this dataset for train_promote:"
   echo "  --directory \"$TRAIN_DATASET_DIR\""
+}
+
+main() {
+  validate_stage
+  prepare_common_dirs
+  prepare_repo_context
+  print_config
+
+  if [[ "$STAGE" == "pod5" || "$STAGE" == "all" ]]; then
+    run_pod5_stage
+  fi
+
+  if [[ "$STAGE" == "downstream" || "$STAGE" == "all" ]]; then
+    run_downstream_stage
+  fi
 }
 
 main "$@"
