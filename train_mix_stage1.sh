@@ -200,6 +200,47 @@ WORK_ROOT=/data/biolab-nvme-pcie2/lijy/tetramod_mafia_rna002
 REPO=/home/lijy/workspace/TetraMod
 cd "$REPO"
 
+MAFIA_ROOT=/data/biolab-backup-hdd2/public_data/mAFia_RNA002_PRJEB74106/HEK293
+
+for RUN_ID in \
+  WUE_splint_batch2_A_RTA \
+  WUE_splint_batch2_m6A_RTA \
+  WUE_splint_batch2_m6A_RTA_1 \
+  WUE_splint_batch2_m6A_RTA_2
+do
+  RUN_DIR=$(awk -F'\t' -v id="$RUN_ID" 'NR > 1 && $1 == id {print $3}' gen_data/mafia_runs.tsv)
+  python gen_data/convert_fast5_tar_to_pod5.py \
+      "$MAFIA_ROOT/$RUN_DIR" \
+      --output-dir "$WORK_ROOT/pod5/$RUN_ID" \
+      --recursive \
+      --jobs 4
+done
+
+DORADO_MODEL=/home/lijy/workspace/TetraMod/src/tetramod/models/rna002_70bps_sup@v3/rna002_70bps_sup@v3
+for RUN_ID in \
+  WUE_splint_batch2_A_RTA \
+  WUE_splint_batch2_m6A_RTA \
+  WUE_splint_batch2_m6A_RTA_1 \
+  WUE_splint_batch2_m6A_RTA_2
+do
+  /home/zhaoxy/workspace/software/dorado-0.9.0-linux-x64/bin/dorado basecaller "$DORADO_MODEL" "$WORK_ROOT/pod5/$RUN_ID" \
+    --emit-moves \
+    --device cuda:0 \
+    > "$WORK_ROOT/bam/$RUN_ID.bam"
+done
+
+WORK_ROOT=/data/biolab-nvme-pcie2/lijy/tetramod_mafia_rna002
+for RUN_ID in \
+  WUE_splint_batch2_A_RTA \
+  WUE_splint_batch2_m6A_RTA \
+  WUE_splint_batch2_m6A_RTA_1 \
+  WUE_splint_batch2_m6A_RTA_2
+do
+  samtools sort -o "$WORK_ROOT/bam/$RUN_ID.sorted.bam" "$WORK_ROOT/bam/$RUN_ID.bam"
+  samtools index "$WORK_ROOT/bam/$RUN_ID.sorted.bam"
+done
+
+
 for RUN_ID in \
   WUE_splint_batch2_A_RTA \
   WUE_splint_batch2_m6A_RTA \
@@ -218,4 +259,23 @@ do
     --chunk-len 5000 \
     --overlap 500 \
     --workers 8
+done
+
+
+MODEL_DIR="$WORK_ROOT/models/stage1_mafia_wue_rl"
+
+for RUN_ID in \
+  WUE_splint_batch2_A_RTA \
+  WUE_splint_batch2_m6A_RTA \
+  WUE_splint_batch2_m6A_RTA_1 \
+  WUE_splint_batch2_m6A_RTA_2
+do
+  python validate/evaluate_mafia_stage1.py "$MODEL_DIR" \
+    --dataset-dir "$WORK_ROOT/chunks/per_run/$RUN_ID" \
+    --split train \
+    --weights 5 \
+    --device cuda:0 \
+    --batchsize 64 \
+    --num-workers 4 \
+    --output-dir "$MODEL_DIR/mafia_stage1_e5_heldout_$RUN_ID"
 done
