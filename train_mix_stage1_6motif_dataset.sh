@@ -11,11 +11,11 @@ set -Eeuo pipefail
 #
 # Edit the path block below for the remote server before running.
 
-REPO="${REPO:-/path/to/TetraMod}"
-MAFIA_ROOT="${MAFIA_ROOT:-/path/to/mAFia_RNA002_PRJEB74106/HEK293}"
-WORK_ROOT="${WORK_ROOT:-/path/to/tetramod_mafia_rna002}"
-DORADO_BIN="${DORADO_BIN:-/path/to/dorado}"
-DORADO_MODEL="${DORADO_MODEL:-/path/to/dorado/rna002_70bps_sup@v3}"
+REPO="${REPO:-/home/lijy/workspace/TetraMod/}"
+MAFIA_ROOT="${MAFIA_ROOT:-/data/biolab-backup-hdd2/public_data/mAFia_RNA002_PRJEB74106/HEK293}"
+WORK_ROOT="${WORK_ROOT:-/data/biolab-nvme-pcie2/lijy/tetramod_mafia_rna002}"
+DORADO_BIN="${DORADO_BIN:-/home/zhaoxy/workspace/software/dorado-0.9.0-linux-x64/bin/dorado}"
+DORADO_MODEL="${DORADO_MODEL:-/home/lijy/workspace/TetraMod/src/tetramod/models/rna002_70bps_sup@v3/rna002_70bps_sup@v3}"
 
 DEVICE="${DEVICE:-cuda:0}"
 POD5_JOBS="${POD5_JOBS:-4}"
