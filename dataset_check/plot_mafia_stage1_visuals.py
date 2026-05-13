@@ -211,6 +211,76 @@ def load_heldout_metrics(heldout_dirs: Iterable[Path]) -> tuple[pd.DataFrame, pd
     return motif_agg, raw_runs, overall
 
 
+def load_site_predictions(eval_dir: Path, *, eval_set: str, run_name: str | None = None) -> pd.DataFrame:
+    path = eval_dir / "site_predictions.tsv"
+    if not path.exists():
+        return pd.DataFrame()
+    df = pd.read_csv(path, sep="\t")
+    required = {"target", "prob_m6a", "motif_context"}
+    missing = required.difference(df.columns)
+    if missing:
+        raise ValueError(f"{path}: missing required columns: {sorted(missing)}")
+    df["target"] = df["target"].astype(int)
+    df["prob_m6a"] = df["prob_m6a"].astype(float)
+    df["motif_context"] = df["motif_context"].astype(str)
+    df["eval_set"] = eval_set
+    if run_name is not None:
+        df["heldout_run"] = run_name
+    return df
+
+
+def load_heldout_site_predictions(heldout_dirs: Iterable[Path]) -> pd.DataFrame:
+    parts = []
+    for directory in sorted(heldout_dirs):
+        run_name = directory.name.replace("mafia_stage1_e5_heldout_", "")
+        df = load_site_predictions(directory, eval_set="Batch2 heldout", run_name=run_name)
+        if not df.empty:
+            parts.append(df)
+    return pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
+
+
+def roc_curve_from_scores(y_true: np.ndarray, y_score: np.ndarray) -> tuple[np.ndarray, np.ndarray, float] | None:
+    y_true = np.asarray(y_true, dtype=np.int64)
+    y_score = np.asarray(y_score, dtype=np.float64)
+    pos = int(np.count_nonzero(y_true == 1))
+    neg = int(np.count_nonzero(y_true == 0))
+    if pos == 0 or neg == 0:
+        return None
+
+    order = np.argsort(-y_score, kind="mergesort")
+    y_sorted = y_true[order]
+    score_sorted = y_score[order]
+    distinct = np.r_[np.where(np.diff(score_sorted))[0], len(score_sorted) - 1]
+    tp = np.cumsum(y_sorted == 1)[distinct]
+    fp = np.cumsum(y_sorted == 0)[distinct]
+    tpr = np.r_[0.0, tp / pos, 1.0]
+    fpr = np.r_[0.0, fp / neg, 1.0]
+    auc = float(np.trapezoid(tpr, fpr))
+    return fpr, tpr, auc
+
+
+def pr_curve_from_scores(y_true: np.ndarray, y_score: np.ndarray) -> tuple[np.ndarray, np.ndarray, float] | None:
+    y_true = np.asarray(y_true, dtype=np.int64)
+    y_score = np.asarray(y_score, dtype=np.float64)
+    pos = int(np.count_nonzero(y_true == 1))
+    neg = int(np.count_nonzero(y_true == 0))
+    if pos == 0 or neg == 0:
+        return None
+
+    order = np.argsort(-y_score, kind="mergesort")
+    y_sorted = y_true[order]
+    score_sorted = y_score[order]
+    distinct = np.r_[np.where(np.diff(score_sorted))[0], len(score_sorted) - 1]
+    tp = np.cumsum(y_sorted == 1)[distinct]
+    fp = np.cumsum(y_sorted == 0)[distinct]
+    precision = tp / np.maximum(tp + fp, 1)
+    recall = tp / pos
+    precision = np.r_[1.0, precision]
+    recall = np.r_[0.0, recall]
+    auc = float(np.trapezoid(precision, recall))
+    return recall, precision, auc
+
+
 def savefig(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     plt.tight_layout()
@@ -462,6 +532,72 @@ def plot_run_level_heldout(raw_runs: pd.DataFrame, out: Path) -> None:
     savefig(out / "09_batch2_run_level_metrics.png")
 
 
+def plot_curve_grid(
+    sites: pd.DataFrame,
+    *,
+    out: Path,
+    motifs: list[str],
+    prefix: str,
+    title_prefix: str,
+) -> list[str]:
+    if sites.empty:
+        print(f"Skipping {title_prefix} ROC/PR curves: site_predictions.tsv not found.")
+        return []
+
+    available = [motif for motif in motifs if motif in set(sites["motif_context"].astype(str))]
+    curve_rows = []
+    palette = dict(zip(available, sns.color_palette("tab10", n_colors=max(len(available), 1))))
+
+    plt.figure(figsize=(7.2, 6.0))
+    ax = plt.gca()
+    for motif in available:
+        sub = sites[sites["motif_context"] == motif]
+        curve = roc_curve_from_scores(sub["target"].to_numpy(), sub["prob_m6a"].to_numpy())
+        if curve is None:
+            continue
+        fpr, tpr, auc = curve
+        n_pos = int(np.count_nonzero(sub["target"].to_numpy() == 1))
+        n_neg = int(np.count_nonzero(sub["target"].to_numpy() == 0))
+        ax.plot(fpr, tpr, lw=2, color=palette[motif], label=f"{motif} AUC={auc:.3f} (+{n_pos}/-{n_neg})")
+        curve_rows.append({"eval_set": title_prefix, "motif_context": motif, "curve": "roc", "auc": auc, "positive": n_pos, "negative": n_neg})
+    ax.plot([0, 1], [0, 1], ls="--", lw=1, color="0.6")
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1.02)
+    ax.set_xlabel("False positive rate")
+    ax.set_ylabel("True positive rate")
+    ax.set_title(f"{title_prefix}: ROC by DRACH motif")
+    ax.legend(fontsize=8, loc="lower right")
+    roc_name = f"{prefix}_roc_by_motif.png"
+    savefig(out / roc_name)
+
+    plt.figure(figsize=(7.2, 6.0))
+    ax = plt.gca()
+    for motif in available:
+        sub = sites[sites["motif_context"] == motif]
+        curve = pr_curve_from_scores(sub["target"].to_numpy(), sub["prob_m6a"].to_numpy())
+        if curve is None:
+            continue
+        recall, precision, auc = curve
+        n_pos = int(np.count_nonzero(sub["target"].to_numpy() == 1))
+        n_neg = int(np.count_nonzero(sub["target"].to_numpy() == 0))
+        prevalence = n_pos / max(n_pos + n_neg, 1)
+        ax.plot(recall, precision, lw=2, color=palette[motif], label=f"{motif} AUPRC={auc:.3f} (+{n_pos}/-{n_neg})")
+        ax.hlines(prevalence, 0, 1, colors=[palette[motif]], linestyles=":", linewidth=0.8, alpha=0.45)
+        curve_rows.append({"eval_set": title_prefix, "motif_context": motif, "curve": "pr", "auc": auc, "positive": n_pos, "negative": n_neg})
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1.02)
+    ax.set_xlabel("Recall")
+    ax.set_ylabel("Precision")
+    ax.set_title(f"{title_prefix}: Precision-recall by DRACH motif")
+    ax.legend(fontsize=8, loc="lower left")
+    pr_name = f"{prefix}_precision_recall_by_motif.png"
+    savefig(out / pr_name)
+
+    if curve_rows:
+        pd.DataFrame(curve_rows).to_csv(out / f"{prefix}_curve_auc_by_motif.tsv", sep="\t", index=False)
+    return [roc_name, pr_name]
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument(
@@ -472,6 +608,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--internal-eval-dir", type=Path, default=Path("val_res/mafia_stage1_epoch5"))
     parser.add_argument("--heldout-glob", default="val_res/mafia_stage1_e5_heldout_WUE_splint_batch2*")
     parser.add_argument("--output-dir", type=Path, default=Path("dataset_check_res/stage1_train_mafia_wue_rl/figures"))
+    parser.add_argument(
+        "--skip-curves",
+        action="store_true",
+        help="Skip ROC and precision-recall curves from site_predictions.tsv.",
+    )
     return parser.parse_args()
 
 
@@ -499,11 +640,34 @@ def main() -> None:
     plot_overall_summary(internal_summary, heldout_summary, output_dir)
     plot_seen_unseen_gap(balance, internal_motifs, heldout_motifs, output_dir, motifs)
     plot_run_level_heldout(heldout_runs, output_dir)
+    curve_figures = []
+    if not args.skip_curves:
+        internal_sites = load_site_predictions(args.internal_eval_dir, eval_set="Internal validation")
+        heldout_sites = load_heldout_site_predictions(heldout_dirs)
+        curve_figures.extend(
+            plot_curve_grid(
+                internal_sites,
+                out=output_dir,
+                motifs=motifs,
+                prefix="10_internal_validation",
+                title_prefix="Internal validation",
+            )
+        )
+        curve_figures.extend(
+            plot_curve_grid(
+                heldout_sites,
+                out=output_dir,
+                motifs=motifs,
+                prefix="11_batch2_heldout",
+                title_prefix="Batch2 heldout",
+            )
+        )
 
     summary = {
         "motifs": motifs,
         "internal_validation": internal_summary.get("overall", {}),
         "batch2_heldout": heldout_summary,
+        "curve_figures": curve_figures,
         "figures": sorted(str(path.name) for path in output_dir.glob("*.png")),
     }
     (output_dir / "visual_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
