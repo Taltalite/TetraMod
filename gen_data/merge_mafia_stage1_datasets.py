@@ -11,7 +11,9 @@ and per-motif positive/negative balancing for the training split.
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
@@ -23,6 +25,8 @@ from tqdm import tqdm
 IGNORE_INDEX = -100
 CANONICAL_A_LABEL = 0
 M6A_LABEL = 4
+NEGATIVE_CLASS = 1
+POSITIVE_CLASS = 2
 COPY_BLOCK_SIZE = 2048
 
 
@@ -51,6 +55,23 @@ class SourceDataset:
 class SelectedSample:
     dataset_idx: int
     source_idx: int
+
+
+@dataclass(frozen=True)
+class ScanResult:
+    dataset_idx: int
+    name: str
+    source_indices: np.ndarray
+    class_codes: np.ndarray
+    motifs: np.ndarray
+    ligations: np.ndarray
+    statuses: np.ndarray
+    runs: np.ndarray
+    class_counts: dict[str, int]
+
+    @property
+    def labeled_count(self) -> int:
+        return int(self.source_indices.shape[0])
 
 
 def parse_dataset_spec(text: str) -> DatasetSpec:
@@ -101,6 +122,54 @@ def sample_class(mod_targets: np.ndarray, length: int) -> str:
     return "unlabeled"
 
 
+def class_name(class_code: int) -> str:
+    if int(class_code) == POSITIVE_CLASS:
+        return "positive"
+    if int(class_code) == NEGATIVE_CLASS:
+        return "negative"
+    return "unlabeled"
+
+
+def metadata_array(metadata: dict[str, np.ndarray], field: str, default: str, size: int) -> np.ndarray:
+    values = metadata.get(field)
+    if values is None:
+        return np.full((size,), default, dtype=str)
+    return np.asarray(values)
+
+
+def scan_dataset_labels(dataset_idx: int, spec: DatasetSpec) -> ScanResult:
+    dataset = load_dataset(spec)
+    mod_targets = dataset.mod_targets
+    has_pos = np.any(mod_targets == M6A_LABEL, axis=1)
+    has_neg = np.any(mod_targets == CANONICAL_A_LABEL, axis=1)
+    positive_mask = has_pos & ~has_neg
+    negative_mask = has_neg & ~has_pos
+    labeled_mask = positive_mask | negative_mask
+    source_indices = np.flatnonzero(labeled_mask).astype(np.int64, copy=False)
+    class_codes = np.where(positive_mask[source_indices], POSITIVE_CLASS, NEGATIVE_CLASS).astype(np.uint8)
+
+    metadata = dataset.metadata
+    motifs = metadata_array(metadata, "motif_context", "unknown", dataset.num_samples)[source_indices].astype(str, copy=True)
+    ligations = metadata_array(metadata, "ligation_strategy", "unknown", dataset.num_samples)[source_indices].astype(str, copy=True)
+    statuses = metadata_array(metadata, "modification_status", "unknown", dataset.num_samples)[source_indices].astype(str, copy=True)
+    runs = metadata_array(metadata, "run_id", dataset.name, dataset.num_samples)[source_indices].astype(str, copy=True)
+
+    return ScanResult(
+        dataset_idx=dataset_idx,
+        name=dataset.name,
+        source_indices=source_indices.copy(),
+        class_codes=class_codes.copy(),
+        motifs=motifs,
+        ligations=ligations,
+        statuses=statuses,
+        runs=runs,
+        class_counts={
+            "positive": int(np.count_nonzero(positive_mask)),
+            "negative": int(np.count_nonzero(negative_mask)),
+        },
+    )
+
+
 def stratum_key(dataset: SourceDataset, idx: int, cls: str) -> tuple[str, str, str, str]:
     metadata = dataset.metadata
     motif = str(metadata.get("motif_context", np.asarray(["unknown"] * dataset.num_samples))[idx])
@@ -112,35 +181,70 @@ def stratum_key(dataset: SourceDataset, idx: int, cls: str) -> tuple[str, str, s
 
 def select_splits(
     datasets: Sequence[SourceDataset],
+    specs: Sequence[DatasetSpec],
     *,
     valid_fraction: float,
     balance_train: bool,
     rng: np.random.Generator,
     show_progress: bool,
+    scan_workers: int,
 ) -> tuple[list[SelectedSample], list[SelectedSample], dict]:
     train_candidates: list[tuple[SelectedSample, str, str]] = []
     valid_selected: list[SelectedSample] = []
-    class_counts = {}
+    class_counts = {"positive": 0, "negative": 0}
     strata: dict[tuple, list[tuple[SelectedSample, str, str]]] = {}
 
-    for dataset_idx, dataset in enumerate(datasets):
-        iterator = tqdm(
-            range(dataset.num_samples),
-            desc=f"scan:{dataset.name}",
-            unit="sample",
-            ascii=True,
-            ncols=100,
-            disable=not show_progress,
-        )
-        for source_idx in iterator:
-            cls = sample_class(dataset.mod_targets[source_idx], int(dataset.lengths[source_idx]))
-            if cls not in {"positive", "negative"}:
-                continue
-            motif = str(dataset.metadata.get("motif_context", np.asarray(["unknown"] * dataset.num_samples))[source_idx])
-            key = stratum_key(dataset, source_idx, cls)
-            item = (SelectedSample(dataset_idx, source_idx), cls, motif)
+    workers = max(1, int(scan_workers))
+    if workers == 1 or len(specs) == 1:
+        scan_results = [
+            scan_dataset_labels(dataset_idx, spec)
+            for dataset_idx, spec in tqdm(
+                list(enumerate(specs)),
+                desc="scan:datasets",
+                unit="dataset",
+                ascii=True,
+                ncols=100,
+                disable=not show_progress,
+            )
+        ]
+    else:
+        scan_results = []
+        with ProcessPoolExecutor(max_workers=min(workers, len(specs))) as executor:
+            futures = {
+                executor.submit(scan_dataset_labels, dataset_idx, spec): spec.name
+                for dataset_idx, spec in enumerate(specs)
+            }
+            iterator = tqdm(
+                as_completed(futures),
+                total=len(futures),
+                desc="scan:datasets",
+                unit="dataset",
+                ascii=True,
+                ncols=100,
+                disable=not show_progress,
+            )
+            for future in iterator:
+                scan_results.append(future.result())
+        scan_results.sort(key=lambda result: result.dataset_idx)
+
+    for result in scan_results:
+        class_counts["positive"] += int(result.class_counts.get("positive", 0))
+        class_counts["negative"] += int(result.class_counts.get("negative", 0))
+        if show_progress:
+            print(
+                "      "
+                f"scanned {result.name}: labeled={result.labeled_count} "
+                f"positive={result.class_counts.get('positive', 0)} "
+                f"negative={result.class_counts.get('negative', 0)}"
+            )
+        for pos in range(result.labeled_count):
+            source_idx = int(result.source_indices[pos])
+            cls = class_name(int(result.class_codes[pos]))
+            motif = str(result.motifs[pos])
+            status = str(result.statuses[pos]) or cls
+            key = (motif, str(result.ligations[pos]), status, str(result.runs[pos]))
+            item = (SelectedSample(result.dataset_idx, source_idx), cls, motif)
             strata.setdefault(key, []).append(item)
-            class_counts[cls] = class_counts.get(cls, 0) + 1
 
     stratum_items = tqdm(
         list(strata.items()),
@@ -297,6 +401,12 @@ def parse_args():
     parser.set_defaults(balance_train=True)
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--no-progress", action="store_true", help="Disable progress bars and progress messages.")
+    parser.add_argument(
+        "--scan-workers",
+        type=int,
+        default=0,
+        help="Parallel worker processes for label scanning. 0 chooses min(number of datasets, CPU count).",
+    )
     return parser.parse_args()
 
 
@@ -307,6 +417,9 @@ def main():
     show_progress = not bool(args.no_progress)
     rng = np.random.default_rng(args.seed)
     specs = [parse_dataset_spec(text) for text in args.dataset]
+    scan_workers = int(args.scan_workers)
+    if scan_workers <= 0:
+        scan_workers = min(len(specs), os.cpu_count() or 1)
     datasets = []
     if show_progress:
         print(f"[1/4] Loading {len(specs)} input datasets...")
@@ -324,13 +437,15 @@ def main():
                 f"mod_targets={tuple(dataset.mod_targets.shape)}"
             )
     if show_progress:
-        print("[2/4] Scanning labels and selecting train/validation splits...")
+        print(f"[2/4] Scanning labels with {scan_workers} worker(s) and selecting train/validation splits...")
     train_selected, valid_selected, selection_summary = select_splits(
         datasets,
+        specs,
         valid_fraction=float(args.valid_fraction),
         balance_train=bool(args.balance_train),
         rng=rng,
         show_progress=show_progress,
+        scan_workers=scan_workers,
     )
     if show_progress:
         print(
