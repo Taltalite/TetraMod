@@ -24,6 +24,7 @@ pip-wheel-metadata/
 *.egg
 *.whl
 val_res/
+dataset_check_res/
 
 # Virtual environments and local dependency caches
 .venv/

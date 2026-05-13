@@ -279,3 +279,11 @@ do
     --num-workers 4 \
     --output-dir "$MODEL_DIR/mafia_stage1_e5_heldout_$RUN_ID"
 done
+
+
+# check training set
+
+WORK_ROOT=/data/biolab-nvme-pcie2/lijy/tetramod_mafia_rna002
+python dataset_check/check_mafia_stage1_dataset.py \
+  "$WORK_ROOT/chunks/stage1_train_mafia_wue_rl" \
+  --output-dir "/home/lijy/workspace/TetraMod/dataset_check_res/stage1_train_mafia_wue_rl/check_reports"
