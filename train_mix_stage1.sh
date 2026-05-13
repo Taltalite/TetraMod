@@ -161,3 +161,18 @@ python gen_data/merge_mafia_stage1_datasets.py \
     --output-dir "$WORK_ROOT/chunks/stage1_train_mafia_wue_rl" \
     --valid-fraction 0.1 \
     --seed 114514
+
+
+# 6. stage 1 training
+WORK_ROOT=/data/biolab-nvme-pcie2/lijy/tetramod_mafia_rna002
+BONITO_MODEL_DIR=/data/biolab-nvme-pcie2/lijy/bonito_models/rna002_70bps_sup@v3
+tetramod train_promote "$WORK_ROOT/models/stage1_mafia_wue_rl" \
+    --config src/tetramod/models/configs/multihead_transformer.toml \
+    --pretrained "$BONITO_MODEL_DIR" \
+    --directory "$WORK_ROOT/chunks/stage1_train_mafia_wue_rl" \
+    --promote-stage control \
+    --chunks 33280 \
+    --valid-chunks 11913 \
+    --batch 64 \
+    --epochs 20 \
+    --device cuda:0
