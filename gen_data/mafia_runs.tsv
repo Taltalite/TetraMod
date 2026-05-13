@@ -1,0 +1,41 @@
+run_id	accession	local_name	modification_status	ligation_strategy	split	oligo_ids	modified_oligo_ids
+# Synthetic splint-ligation TRAIN controls from Supplementary Table 3.
+WUE_splint_lig_A_RTA	ERR12770810	20230221_WUE_splint_lig_ERR12770810/20230221_WUE_splint_lig/WUE_splint_lig_A_RTA	unmodified	splint_ligation	train	SL_M1_S0,SL_M3_S0,SL_M4_S0	
+WUE_splint_lig_m6A_RTA	ERR12770810	20230221_WUE_splint_lig_ERR12770810/20230221_WUE_splint_lig/WUE_splint_lig_m6A_RTA	modified	splint_ligation	train	SL_M1_S0,SL_M3_S0,SL_M4_S0	
+WUE_splint_batch2_A_RTA	ERR12770811	20230502_WUE_splint_batch2_ERR12770811/20230502_WUE_splint_batch2/WUE_splint_batch2_A_RTA	unmodified	splint_ligation	train	SL_M0_S0,SL_M2_S0,SL_M5_S0	
+WUE_splint_batch2_m6A_RTA	ERR12770811	20230502_WUE_splint_batch2_ERR12770811/20230502_WUE_splint_batch2/WUE_splint_batch2_m6A_RTA	modified	splint_ligation	train	SL_M0_S0,SL_M2_S0,SL_M5_S0	
+WUE_splint_batch2_m6A_RTA_1	ERR12770812	20230510_WUE_splint_batch2_ERR12770812/20230510_WUE_splint_batch2/WUE_splint_m6A_batch2_RTA_1	modified	splint_ligation	train	SL_M0_S0,SL_M2_S0,SL_M5_S0	
+WUE_splint_batch2_m6A_RTA_2	ERR12770812	20230510_WUE_splint_batch2_ERR12770812/20230510_WUE_splint_batch2/WUE_splint_m6A_batch2_RTA_2	modified	splint_ligation	train	SL_M0_S0,SL_M2_S0,SL_M5_S0	
+# Supplementary Table 3 runs 7-8 reference ISA_M*_S0 oligos. They are present locally, but disabled until ISA oligo sequences are added to mafia_oligos.tsv.
+# RL_RG1-6_A_RTA	ERR12770807	Random_Ligation_A_m6A_ERR12770807/20230418_Random_Ligation_A_m6A/RL_RG1-6_A_RTA	unmodified	random_ligation	disabled	ISA_M0_S0,ISA_M1_S0,ISA_M2_S0,ISA_M3_S0,ISA_M4_S0,ISA_M5_S0	
+# RL_RG7-12_m6A_RTA	ERR12770807	Random_Ligation_A_m6A_ERR12770807/20230418_Random_Ligation_A_m6A/RL_RG7-12_m6A_RTA	modified	random_ligation	disabled	ISA_M0_S0,ISA_M1_S0,ISA_M2_S0,ISA_M3_S0,ISA_M4_S0,ISA_M5_S0	
+# Synthetic random-ligation homopolymer TRAIN controls from Supplementary Table 3.
+RL_Mix1_A_RTA	ERR12770808	RL_run2_ERR12770808/20230503_RL_run2/RL_Mix1_A_RTA	unmodified	random_ligation	train	RL_M4_S0,RL_M3_S0,RL_M5_S0	
+RL_Mix2_A_RTA	ERR12770808	RL_run2_ERR12770808/20230503_RL_run2/RL_Mix2_A_RTA	unmodified	random_ligation	train	RL_M0_S0,RL_M1_S0,RL_M2_S0	
+RL_Mix3_m6A_RTA	ERR12770808	RL_run2_ERR12770808/20230503_RL_run2/RL_Mix3_m6A_RTA	modified	random_ligation	train	RL_M4_S0,RL_M3_S0,RL_M5_S0	
+RL_Mix4_m6A_RTA	ERR12770808	RL_run2_ERR12770808/20230503_RL_run2/RL_Mix4_m6A_RTA	modified	random_ligation	train	RL_M0_S0,RL_M1_S0,RL_M2_S0	
+Mix_1_A_RTA	ERR12770809	RL_mix_w_new_oligos_ERR12770809/20230606_RL_mix_w_new_oligos/RL_Mix_1_A_RTA	unmodified	random_ligation	train	RL_M3_S1,RL_M2_S1	
+Mix_2_m6A_RTA	ERR12770809	RL_mix_w_new_oligos_ERR12770809/20230606_RL_mix_w_new_oligos/RL_Mix_2_m6A_RTA	modified	random_ligation	train	RL_M3_S1,RL_M2_S1	
+Mix_3_A_RTA	ERR12770809	RL_mix_w_new_oligos_ERR12770809/20230606_RL_mix_w_new_oligos/RL_Mix_3_A_RTA	unmodified	random_ligation	train	RL_M0_S0,RL_M1_S0,RL_M4_S0,RL_M5_S0	
+Mix_4_m6A_RTA	ERR12770809	RL_mix_w_new_oligos_ERR12770809/20230606_RL_mix_w_new_oligos/RL_Mix_4_m6A_RTA	modified	random_ligation	train	RL_M0_S0,RL_M1_S0,RL_M4_S0,RL_M5_S0	
+# Synthetic random-ligation heteropolymer TEST controls from Supplementary Table 3.
+RL_M4_M5_RTA	ERR12770813	20230523_RL_M4_M5_ERR12770813/20230523_RL_M4_M5/RL_M4_M5_RTA	unmodified	random_ligation	test	RL_M4_S0,RL_M5_S0	
+RL_M4_M5_star_RTA	ERR12770813	20230523_RL_M4_M5_ERR12770813/20230523_RL_M4_M5/RL_M4_M5star_RTA	mixed	random_ligation	test	RL_M4_S0,RL_M5_S0	RL_M5_S0
+RL_M4star_M5_RTA	ERR12770813	20230523_RL_M4_M5_ERR12770813/20230523_RL_M4_M5/RL_M4star_M5_RTA	mixed	random_ligation	test	RL_M4_S0,RL_M5_S0	RL_M4_S0
+RL_M4star_M5star_RTA	ERR12770813	20230523_RL_M4_M5_ERR12770813/20230523_RL_M4_M5/RL_M4star_M5star_RTA	modified	random_ligation	test	RL_M4_S0,RL_M5_S0	
+# TEST2 AB/BA rows are mapped from local O1/O2 directory names. Confirm O1/O2 correspond to SL_AB/SL_BA before using these for evaluation.
+# The current one-center SL_AB/SL_BA oligo entries represent only the m6A center in each oligo; the unmodified partner DRACH site is not labeled.
+WUE_mix_AB_and_BA_RTA	ERR12770815	20230628_WUE_batch_3_ERR12770815/20230628_WUE_batch_3/WUE_mix_O1_and_O2_RTA	mixed	splint_ligation	test	SL_AB,SL_BA	SL_AB,SL_BA
+WUE_AB_BA_RTA	ERR12770815	20230628_WUE_batch_3_ERR12770815/20230628_WUE_batch_3/WUE_O1_O2_RTA	mixed	splint_ligation	test	SL_AB,SL_BA	SL_AB,SL_BA
+# Additional local O1/O2 directories in ERR12770814 are not enabled because they are not unambiguously represented by the provided Supplementary Table 3 rows.
+# WUE_O1_RTA	ERR12770814	20230626_WUE_batch_3_ERR12770814/20230626_WUE_batch_3/WUE_O1_RTA	mixed	splint_ligation	disabled	SL_AB	
+# WUE_O2_RTA	ERR12770814	20230626_WUE_batch_3_ERR12770814/20230626_WUE_batch_3/WUE_O2_RTA	mixed	splint_ligation	disabled	SL_BA	
+# WUE_O1_O2_RTA	ERR12770814	20230626_WUE_batch_3_ERR12770814/20230626_WUE_batch_3/WUE_O1_O2_RTA	mixed	splint_ligation	disabled	SL_AB,SL_BA	
+# Supplementary Table 3 runs 23-30 are HEK293 IVT/WT ratio or WT data and are intentionally excluded from Stage1 strong-label training.
+# 0_WT_100_IVT_RTA	ERR12953422	0_WT_100_IVT_RTA_ERR12953422/0_WT_100_IVT_RTA	unmodified	na	disabled		
+# 25_WT_75_IVT_RTA	ERR12953423	25_WT_75_IVT_RTA_ERR12953423/25_WT_75_IVT_RTA	unknown	na	disabled		
+# 50_WT_50_IVT_RTA_rep1	ERR12953424	50_WT_50_IVT_RTA_rep1_ERR12953424/50_WT_50_IVT_RTA	unknown	na	disabled		
+# 50_WT_50_IVT_RTA_rep2	ERR12953890	50_WT_50_IVT_RTA_rep2_ERR12953890/50_WT_50_IVT_RTA	unknown	na	disabled		
+# 75_WT_25_IVT_RTA_rep1	ERR12953425	75_WT_25_IVT_RTA_rep1_ERR12953425/75_WT_25_IVT_RTA	unknown	na	disabled		
+# 75_WT_25_IVT_RTA_rep2	ERR12953891	75WT_rep2_ERR12953891/75_WT_25_IVT_RTA	unknown	na	disabled		
+# 100_WT_0_IVT_RTA	ERR12772618	100_WT_0_IVT_RTA_ERR12772618/100_WT_0_IVT_RTA	unknown	na	disabled		
