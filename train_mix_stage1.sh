@@ -292,3 +292,42 @@ python dataset_check/plot_mafia_stage1_visuals.py \
   --internal-eval-dir val_res/mafia_stage1_epoch5 \
   --heldout-glob 'val_res/mafia_stage1_e5_heldout_WUE_splint_batch2*' \
   --output-dir dataset_check_res/stage1_train_mafia_wue_rl/figures
+
+
+# train a large train set with more motifs
+
+WORK_ROOT=/data/biolab-nvme-pcie2/lijy/tetramod_mafia_rna002
+DATA_DIR="$WORK_ROOT/chunks/stage1_train_mafia_6motif_wue_batch2_rlmix1_4"
+MODEL_DIR="$WORK_ROOT/models/stage1_mafia_6motif_wue_batch2_rlmix1_4"
+BONITO_MODEL_DIR=/data/biolab-nvme-pcie2/lijy/bonito_models/rna002_70bps_sup@v3
+REPO=/home/lijy/workspace/TetraMod
+
+BATCH=64
+TRAIN_CHUNKS=$(python - <<PY
+import numpy as np
+n = np.load("$DATA_DIR/reference_lengths.npy", mmap_mode="r").shape[0]
+print((n // $BATCH) * $BATCH)
+PY
+)
+VALID_CHUNKS=$(python - <<PY
+import numpy as np
+print(np.load("$DATA_DIR/validation/reference_lengths.npy", mmap_mode="r").shape[0])
+PY
+)
+
+cd "$REPO"
+
+tetramod train_promote "$MODEL_DIR" \
+  --config src/tetramod/models/configs/multihead_transformer.toml \
+  --pretrained "$BONITO_MODEL_DIR" \
+  --directory "$DATA_DIR" \
+  --promote-stage control \
+  --chunks "$TRAIN_CHUNKS" \
+  --valid-chunks "$VALID_CHUNKS" \
+  --batch 32 \
+  --epochs 30 \
+  --lr 1e-4 \
+  --device cuda:0 \
+  --num-workers 4 \
+  --no-compile \
+  > /home/lijy/workspace/TetraMod/log/train_log/tetramod_trainpromote_mafia_stage1_260513_6motif_dataset.log 2>&1
