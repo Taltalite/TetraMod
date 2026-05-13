@@ -262,8 +262,6 @@ do
 done
 
 
-MODEL_DIR="$WORK_ROOT/models/stage1_mafia_wue_rl"
-
 for RUN_ID in \
   WUE_splint_batch2_A_RTA \
   WUE_splint_batch2_m6A_RTA \
@@ -277,13 +275,20 @@ do
     --device cuda:0 \
     --batchsize 64 \
     --num-workers 4 \
+    --write-sites \
     --output-dir "$MODEL_DIR/mafia_stage1_e5_heldout_$RUN_ID"
 done
 
 
 # check training set
 
-WORK_ROOT=/data/biolab-nvme-pcie2/lijy/tetramod_mafia_rna002
 python dataset_check/check_mafia_stage1_dataset.py \
   "$WORK_ROOT/chunks/stage1_train_mafia_wue_rl" \
   --output-dir "/home/lijy/workspace/TetraMod/dataset_check_res/stage1_train_mafia_wue_rl/check_reports"
+
+WORK_ROOT=/data/biolab-nvme-pcie2/lijy/tetramod_mafia_rna002
+python dataset_check/plot_mafia_stage1_visuals.py \
+  --motif-balance dataset_check_res/stage1_train_mafia_wue_rl/check_reports/motif_balance.tsv \
+  --internal-eval-dir val_res/mafia_stage1_epoch5 \
+  --heldout-glob 'val_res/mafia_stage1_e5_heldout_WUE_splint_batch2*' \
+  --output-dir dataset_check_res/stage1_train_mafia_wue_rl/figures
