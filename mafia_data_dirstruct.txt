@@ -1,0 +1,19 @@
+total 72
+drwxrwxr-x 18 zhaoxy zhaoxy 4096 May  4 02:15 ./
+drwxrwxr-x  3 zhaoxy zhaoxy 4096 Apr 28 00:40 ../
+drwxrwxr-x  3 zhaoxy zhaoxy 4096 May  5 12:32 0_WT_100_IVT_RTA_ERR12953422/
+drwxrwxr-x  3 zhaoxy zhaoxy 4096 May  5 12:32 100_WT_0_IVT_RTA_ERR12772618/
+drwxrwxr-x  3 zhaoxy zhaoxy 4096 Apr 29 10:03 20230221_WUE_splint_lig_ERR12770810/
+drwxrwxr-x  3 zhaoxy zhaoxy 4096 Apr 29 14:11 20230502_WUE_splint_batch2_ERR12770811/
+drwxrwxr-x  3 zhaoxy zhaoxy 4096 Apr 29 14:11 20230510_WUE_splint_batch2_ERR12770812/
+drwxrwxr-x  3 zhaoxy zhaoxy 4096 Apr 29 14:12 20230523_RL_M4_M5_ERR12770813/
+drwxrwxr-x  3 zhaoxy zhaoxy 4096 Apr 29 14:12 20230626_WUE_batch_3_ERR12770814/
+drwxrwxr-x  3 zhaoxy zhaoxy 4096 Apr 29 14:12 20230628_WUE_batch_3_ERR12770815/
+drwxrwxr-x  3 zhaoxy zhaoxy 4096 May  5 12:32 25_WT_75_IVT_RTA_ERR12953423/
+drwxrwxr-x  3 zhaoxy zhaoxy 4096 May  5 12:32 50_WT_50_IVT_RTA_rep1_ERR12953424/
+drwxrwxr-x  3 zhaoxy zhaoxy 4096 May  5 12:33 50_WT_50_IVT_RTA_rep2_ERR12953890/
+drwxrwxr-x  3 zhaoxy zhaoxy 4096 May  5 12:33 75_WT_25_IVT_RTA_rep1_ERR12953425/
+drwxrwxr-x  3 zhaoxy zhaoxy 4096 Apr 29 15:45 75WT_rep2_ERR12953891/
+drwxrwxr-x  3 zhaoxy zhaoxy 4096 Apr 29 14:12 Random_Ligation_A_m6A_ERR12770807/
+drwxrwxr-x  3 zhaoxy zhaoxy 4096 Apr 29 14:12 RL_mix_w_new_oligos_ERR12770809/
+drwxrwxr-x  3 zhaoxy zhaoxy 4096 Apr 29 14:12 RL_run2_ERR12770808/
