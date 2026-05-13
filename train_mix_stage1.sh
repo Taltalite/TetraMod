@@ -121,6 +121,34 @@ python gen_data/create_mafia_synthetic_stage1_dataset.py \
   --overlap 500 \
   --workers 8
 
+RUN_ID=RL_Mix1_A_RTA
+python gen_data/create_mafia_synthetic_stage1_dataset.py \
+  --bam-file "$WORK_ROOT/bam/$RUN_ID.sorted.bam" \
+  --pod5-dir "$WORK_ROOT/pod5/$RUN_ID" \
+  --output-dir "$WORK_ROOT/chunks/per_run/$RUN_ID" \
+  --oligo-manifest /home/lijy/workspace/TetraMod/gen_data/mafia_oligos.tsv \
+  --run-manifest /home/lijy/workspace/TetraMod/gen_data/mafia_runs.tsv \
+  --run-id "$RUN_ID" \
+  --sample-type rna \
+  --rna002 \
+  --chunk-len 5000 \
+  --overlap 500 \
+  --workers 8
+
+RUN_ID=RL_Mix3_m6A_RTA
+python gen_data/create_mafia_synthetic_stage1_dataset.py \
+  --bam-file "$WORK_ROOT/bam/$RUN_ID.sorted.bam" \
+  --pod5-dir "$WORK_ROOT/pod5/$RUN_ID" \
+  --output-dir "$WORK_ROOT/chunks/per_run/$RUN_ID" \
+  --oligo-manifest /home/lijy/workspace/TetraMod/gen_data/mafia_oligos.tsv \
+  --run-manifest /home/lijy/workspace/TetraMod/gen_data/mafia_runs.tsv \
+  --run-id "$RUN_ID" \
+  --sample-type rna \
+  --rna002 \
+  --chunk-len 5000 \
+  --overlap 500 \
+  --workers 8
+
 # 5. 合并 Stage1 train dataset
 
 WORK_ROOT=/data/biolab-nvme-pcie2/lijy/tetramod_mafia_rna002
@@ -128,6 +156,8 @@ WORK_ROOT=/data/biolab-nvme-pcie2/lijy/tetramod_mafia_rna002
 python gen_data/merge_mafia_stage1_datasets.py \
     --dataset WUE_splint_lig_A_RTA:"$WORK_ROOT/chunks/per_run/WUE_splint_lig_A_RTA" \
     --dataset WUE_splint_lig_m6A_RTA:"$WORK_ROOT/chunks/per_run/WUE_splint_lig_m6A_RTA" \
-    --output-dir "$WORK_ROOT/chunks/stage1_train_wue_splint_lig" \
-    --valid-fraction 0.25 \
+    --dataset RL_Mix1_A_RTA:"$WORK_ROOT/chunks/per_run/RL_Mix1_A_RTA" \
+    --dataset RL_Mix3_m6A_RTA:"$WORK_ROOT/chunks/per_run/RL_Mix3_m6A_RTA" \
+    --output-dir "$WORK_ROOT/chunks/stage1_train_mafia_wue_rl" \
+    --valid-fraction 0.1 \
     --seed 114514
