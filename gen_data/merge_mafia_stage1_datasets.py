@@ -116,6 +116,7 @@ def select_splits(
     valid_fraction: float,
     balance_train: bool,
     rng: np.random.Generator,
+    show_progress: bool,
 ) -> tuple[list[SelectedSample], list[SelectedSample], dict]:
     train_candidates: list[tuple[SelectedSample, str, str]] = []
     valid_selected: list[SelectedSample] = []
@@ -123,7 +124,15 @@ def select_splits(
     strata: dict[tuple, list[tuple[SelectedSample, str, str]]] = {}
 
     for dataset_idx, dataset in enumerate(datasets):
-        for source_idx in range(dataset.num_samples):
+        iterator = tqdm(
+            range(dataset.num_samples),
+            desc=f"scan:{dataset.name}",
+            unit="sample",
+            ascii=True,
+            ncols=100,
+            disable=not show_progress,
+        )
+        for source_idx in iterator:
             cls = sample_class(dataset.mod_targets[source_idx], int(dataset.lengths[source_idx]))
             if cls not in {"positive", "negative"}:
                 continue
@@ -133,7 +142,15 @@ def select_splits(
             strata.setdefault(key, []).append(item)
             class_counts[cls] = class_counts.get(cls, 0) + 1
 
-    for key, items in strata.items():
+    stratum_items = tqdm(
+        list(strata.items()),
+        desc="split:strata",
+        unit="stratum",
+        ascii=True,
+        ncols=100,
+        disable=not show_progress,
+    )
+    for key, items in stratum_items:
         items = list(items)
         rng.shuffle(items)
         valid_count = int(round(len(items) * valid_fraction))
@@ -148,7 +165,15 @@ def select_splits(
             by_motif_class.setdefault((motif, cls), []).append(sample)
         train_selected = []
         motifs = sorted({motif for motif, _ in by_motif_class})
-        for motif in motifs:
+        motif_items = tqdm(
+            motifs,
+            desc="balance:motifs",
+            unit="motif",
+            ascii=True,
+            ncols=100,
+            disable=not show_progress,
+        )
+        for motif in motif_items:
             positives = list(by_motif_class.get((motif, "positive"), []))
             negatives = list(by_motif_class.get((motif, "negative"), []))
             if not positives or not negatives:
@@ -174,7 +199,14 @@ def select_splits(
     return train_selected, valid_selected, summary
 
 
-def write_split(output_dir: Path, datasets: Sequence[SourceDataset], selected: Sequence[SelectedSample], name: str) -> dict:
+def write_split(
+    output_dir: Path,
+    datasets: Sequence[SourceDataset],
+    selected: Sequence[SelectedSample],
+    name: str,
+    *,
+    show_progress: bool,
+) -> dict:
     if not selected:
         raise ValueError(f"{name}: no samples selected")
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -195,7 +227,15 @@ def write_split(output_dir: Path, datasets: Sequence[SourceDataset], selected: S
     metadata_out = {field: [] for field in metadata_fields}
     source_names = []
 
-    for out_start in tqdm(range(0, total, COPY_BLOCK_SIZE), desc=f"write:{name}", ascii=True, ncols=100):
+    write_blocks = tqdm(
+        range(0, total, COPY_BLOCK_SIZE),
+        desc=f"write:{name}",
+        unit="block",
+        ascii=True,
+        ncols=100,
+        disable=not show_progress,
+    )
+    for out_start in write_blocks:
         out_end = min(out_start + COPY_BLOCK_SIZE, total)
         out_chunks[out_start:out_end] = 0
         out_refs[out_start:out_end] = 0
@@ -256,6 +296,7 @@ def parse_args():
     parser.add_argument("--no-balance-train", dest="balance_train", action="store_false")
     parser.set_defaults(balance_train=True)
     parser.add_argument("--seed", type=int, default=1)
+    parser.add_argument("--no-progress", action="store_true", help="Disable progress bars and progress messages.")
     return parser.parse_args()
 
 
@@ -263,17 +304,54 @@ def main():
     args = parse_args()
     if args.valid_fraction < 0 or args.valid_fraction >= 1:
         raise ValueError("--valid-fraction must be in [0, 1)")
+    show_progress = not bool(args.no_progress)
     rng = np.random.default_rng(args.seed)
     specs = [parse_dataset_spec(text) for text in args.dataset]
-    datasets = [load_dataset(spec) for spec in specs]
+    datasets = []
+    if show_progress:
+        print(f"[1/4] Loading {len(specs)} input datasets...")
+    for spec in specs:
+        if show_progress:
+            print(f"      loading {spec.name}: {spec.directory}")
+        dataset = load_dataset(spec)
+        datasets.append(dataset)
+        if show_progress:
+            print(
+                "      "
+                f"{dataset.name}: samples={dataset.num_samples} "
+                f"chunks={tuple(dataset.chunks.shape)} "
+                f"references={tuple(dataset.references.shape)} "
+                f"mod_targets={tuple(dataset.mod_targets.shape)}"
+            )
+    if show_progress:
+        print("[2/4] Scanning labels and selecting train/validation splits...")
     train_selected, valid_selected, selection_summary = select_splits(
         datasets,
         valid_fraction=float(args.valid_fraction),
         balance_train=bool(args.balance_train),
         rng=rng,
+        show_progress=show_progress,
     )
-    train_summary = write_split(args.output_dir, datasets, train_selected, "train")
-    valid_summary = write_split(args.output_dir / "validation", datasets, valid_selected, "validation")
+    if show_progress:
+        print(
+            "      "
+            f"labeled_counts={selection_summary['input_labeled_class_counts']} "
+            f"strata={selection_summary['num_strata']} "
+            f"train={selection_summary['train_selected']} "
+            f"validation={selection_summary['validation_selected']} "
+            f"balance_train={selection_summary['balance_train']}"
+        )
+        print("[3/4] Writing train split...")
+    train_summary = write_split(args.output_dir, datasets, train_selected, "train", show_progress=show_progress)
+    if show_progress:
+        print("[4/4] Writing validation split...")
+    valid_summary = write_split(
+        args.output_dir / "validation",
+        datasets,
+        valid_selected,
+        "validation",
+        show_progress=show_progress,
+    )
     summary = {
         "inputs": [{"name": spec.name, "directory": str(spec.directory.resolve())} for spec in specs],
         "selection": selection_summary,
