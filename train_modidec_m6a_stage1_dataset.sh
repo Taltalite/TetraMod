@@ -22,11 +22,11 @@ set -Eeuo pipefail
 #   MODIDEC_HELDOUT_CANONICAL_POD5_SPECS="heldout_unmod:/path/to/pod5"
 #   MODIDEC_HELDOUT_M6A_POD5_SPECS="heldout_m6a:/path/to/pod5"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO="${REPO:-$SCRIPT_DIR}"
-WORK_ROOT="${WORK_ROOT:-$REPO/work_modidec_rna002}"
-DORADO_BIN="${DORADO_BIN:-dorado}"
-DORADO_MODEL="${DORADO_MODEL:-$REPO/src/tetramod/models/rna002_70bps_sup@v3/rna002_70bps_sup@v3}"
+
+REPO="${REPO:-/home/lijy/workspace/TetraMod/}"
+WORK_ROOT="${WORK_ROOT:-/data/biolab-nvme-pcie2/lijy/tetramod_modidec_rna002}"
+DORADO_BIN="${DORADO_BIN:-/home/zhaoxy/workspace/software/dorado-0.9.0-linux-x64/bin/dorado}"
+DORADO_MODEL="${DORADO_MODEL:-/home/lijy/workspace/TetraMod/src/tetramod/models/rna002_70bps_sup@v3/rna002_70bps_sup@v3}"
 
 STAGE="${STAGE:-all}"
 DEVICE="${DEVICE:-cuda:0}"
