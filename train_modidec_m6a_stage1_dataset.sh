@@ -1,30 +1,28 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# Build a MoDiDeC RNA002 m6A Stage 1 dataset from already-converted POD5.
+# Build a MoDiDeC RNA002 m6A Stage 1 dataset from an already-basecalled BAM.
 #
-# MoDiDeC m6A data are handled as one internally labeled construct run:
-#   positive chunks = windows containing an explicitly matched Supplementary
-#                     Table 1 m6A oligo center;
-#   negative chunks = A-containing windows outside matched m6A oligo intervals.
+# Preprocessing chain:
+#   POD5 raw signal + Dorado BAM with --emit-moves
+#     -> match Supplementary Table 1 m6A oligo sequences in each read
+#     -> positive chunks: windows containing explicit m6A oligo center A
+#     -> internal negative chunks: A-containing windows outside matched m6A oligo intervals
+#     -> balanced Stage 1 train/validation numpy dataset
 #
-# Required:
-#   MODIDEC_POD5_SPECS="modidec_m6a:/path/to/pod5_dir_or_file.pod5"
+# Required input format:
+#   MODIDEC_BAM_SPECS="run_name:/path/to/basecalled.bam:/path/to/pod5_dir_or_file.pod5"
 #
-# Multiple runs are separated by semicolons:
-#   MODIDEC_POD5_SPECS="run1:/pod5/a;run2:/pod5/b"
+# Multiple already-basecalled runs can be separated by semicolons:
+#   MODIDEC_BAM_SPECS="run1:/bam/a.bam:/pod5/a;run2:/bam/b.bam:/pod5/b"
 #
-# Optional heldout/test pass over the same or different POD5:
-#   MODIDEC_HELDOUT_POD5_SPECS="heldout:/path/to/pod5"
+# Optional heldout/test pass over the same BAM/POD5 or another pair:
+#   MODIDEC_HELDOUT_BAM_SPECS="heldout:/path/to/basecalled.bam:/path/to/pod5"
 #   MODIDEC_HELDOUT_OLIGO_IDS="modidec_m6A_11"
 
 REPO="${REPO:-/home/lijy/workspace/TetraMod/}"
 WORK_ROOT="${WORK_ROOT:-/data/biolab-nvme-pcie2/lijy/tetramod_modidec_rna002}"
-DORADO_BIN="${DORADO_BIN:-/home/zhaoxy/workspace/software/dorado-0.9.0-linux-x64/bin/dorado}"
-DORADO_MODEL="${DORADO_MODEL:-/home/lijy/workspace/TetraMod/src/tetramod/models/rna002_70bps_sup@v3/rna002_70bps_sup@v3}"
 
-STAGE="${STAGE:-all}"
-DEVICE="${DEVICE:-cuda:0}"
 DATASET_WORKERS="${DATASET_WORKERS:-8}"
 CHUNK_LEN="${CHUNK_LEN:-5000}"
 OVERLAP="${OVERLAP:-500}"
@@ -43,8 +41,8 @@ NEGATIVE_EXCLUSION_BASES="${NEGATIVE_EXCLUSION_BASES:-0}"
 TRAIN_DATASET_NAME="${TRAIN_DATASET_NAME:-stage1_train_modidec_m6a_rna002}"
 HELDOUT_ROOT_NAME="${HELDOUT_ROOT_NAME:-heldout_modidec_m6a_rna002}"
 
-MODIDEC_POD5_SPECS="${MODIDEC_POD5_SPECS:-${MODIDEC_M6A_POD5_SPECS:-}}"
-MODIDEC_HELDOUT_POD5_SPECS="${MODIDEC_HELDOUT_POD5_SPECS:-${MODIDEC_HELDOUT_M6A_POD5_SPECS:-}}"
+MODIDEC_BAM_SPECS="${MODIDEC_BAM_SPECS:-}"
+MODIDEC_HELDOUT_BAM_SPECS="${MODIDEC_HELDOUT_BAM_SPECS:-}"
 MODIDEC_TRAIN_OLIGO_IDS="${MODIDEC_TRAIN_OLIGO_IDS:-}"
 MODIDEC_HELDOUT_OLIGO_IDS="${MODIDEC_HELDOUT_OLIGO_IDS:-}"
 
@@ -64,15 +62,6 @@ require_file() {
   [[ -e "$path" ]] || fail "Missing required path: $path"
 }
 
-require_executable() {
-  local command_or_path="$1"
-  if [[ "$command_or_path" == */* ]]; then
-    [[ -x "$command_or_path" ]] || fail "Missing executable: $command_or_path"
-    return
-  fi
-  command -v "$command_or_path" >/dev/null 2>&1 || fail "Executable not found in PATH: $command_or_path"
-}
-
 has_any_file() {
   local directory="$1"
   [[ -d "$directory" && -n "$(find "$directory" -type f -print -quit)" ]]
@@ -88,7 +77,7 @@ sanitize_run_id() {
 parse_specs() {
   local specs="$1"
   local split="$2"
-  local raw name path
+  local raw run_id bam_path pod5_path remainder
 
   [[ -n "$specs" ]] || return 0
   IFS=';' read -r -a raw_specs <<< "$specs"
@@ -96,15 +85,11 @@ parse_specs() {
     raw="${raw#"${raw%%[![:space:]]*}"}"
     raw="${raw%"${raw##*[![:space:]]}"}"
     [[ -n "$raw" ]] || continue
-    if [[ "$raw" == *:* ]]; then
-      name="${raw%%:*}"
-      path="${raw#*:}"
-    else
-      path="$raw"
-      name="$(basename "$path")"
-    fi
-    name="$(sanitize_run_id "$name")"
-    printf '%s\t%s\t%s\n' "$name" "$split" "$path"
+    IFS=':' read -r run_id bam_path pod5_path remainder <<< "$raw"
+    [[ -z "${remainder:-}" ]] || fail "Invalid spec with too many ':' fields: $raw"
+    [[ -n "$run_id" && -n "$bam_path" && -n "$pod5_path" ]] || fail "Spec must be run:bam:pod5, got: $raw"
+    run_id="$(sanitize_run_id "$run_id")"
+    printf '%s\t%s\t%s\t%s\n' "$run_id" "$split" "$bam_path" "$pod5_path"
   done
 }
 
@@ -144,11 +129,11 @@ oligo_ids_for_split() {
 }
 
 spec_file() {
-  local path="$WORK_ROOT/manifests/pod5_specs.tsv"
+  local path="$WORK_ROOT/manifests/bam_specs.tsv"
   {
-    parse_specs "$MODIDEC_POD5_SPECS" "train"
+    parse_specs "$MODIDEC_BAM_SPECS" "train"
     if [[ "$BUILD_HELDOUT" == "1" ]]; then
-      parse_specs "$MODIDEC_HELDOUT_POD5_SPECS" "heldout"
+      parse_specs "$MODIDEC_HELDOUT_BAM_SPECS" "heldout"
     fi
   } > "$path"
   printf '%s\n' "$path"
@@ -160,16 +145,23 @@ run_ids_for_split() {
   awk -F'\t' -v split="$split" '$2 == split { print $1 }' "$specs_file"
 }
 
-pod5_path_for_run() {
+field_for_run() {
   local specs_file="$1"
   local run_id="$2"
-  awk -F'\t' -v id="$run_id" '$1 == id { print $3 }' "$specs_file"
+  local field="$3"
+  awk -F'\t' -v id="$run_id" -v field="$field" '$1 == id { print $field }' "$specs_file"
 }
 
 split_for_run() {
-  local specs_file="$1"
-  local run_id="$2"
-  awk -F'\t' -v id="$run_id" '$1 == id { print $2 }' "$specs_file"
+  field_for_run "$1" "$2" 2
+}
+
+bam_path_for_run() {
+  field_for_run "$1" "$2" 3
+}
+
+pod5_path_for_run() {
+  field_for_run "$1" "$2" 4
 }
 
 pod5_input_dir_for_run() {
@@ -201,39 +193,19 @@ pod5_input_dir_for_run() {
   printf '%s\n' "$link_dir"
 }
 
-basecall_run() {
-  local specs_file="$1"
-  local run_id="$2"
-  local pod5_dir bam
-  pod5_dir="$(pod5_input_dir_for_run "$specs_file" "$run_id")"
-  bam="$WORK_ROOT/bam/$run_id.bam"
-
-  require_file "$pod5_dir"
-  if [[ "$SKIP_EXISTING" == "1" && -s "$bam" ]]; then
-    echo "[skip bam] $run_id -> $bam"
-    return
-  fi
-
-  echo "[dorado] $run_id"
-  "$DORADO_BIN" basecaller "$DORADO_MODEL" "$pod5_dir" \
-    --emit-moves \
-    --device "$DEVICE" \
-    > "$bam"
-}
-
 build_run_dataset() {
   local specs_file="$1"
   local run_id="$2"
   local output_dir="$3"
   local pod5_dir bam split oligo_ids
 
+  bam="$(bam_path_for_run "$specs_file" "$run_id")"
   pod5_dir="$(pod5_input_dir_for_run "$specs_file" "$run_id")"
   split="$(split_for_run "$specs_file" "$run_id")"
-  bam="$WORK_ROOT/bam/$run_id.bam"
   oligo_ids="$(oligo_ids_for_split "$split")"
 
-  require_file "$pod5_dir"
   require_file "$bam"
+  require_file "$pod5_dir"
 
   if [[ "$SKIP_EXISTING" == "1" \
       && -s "$output_dir/chunks.npy" \
@@ -276,7 +248,7 @@ merge_train_dataset() {
     merge_args+=(--dataset "$run_id:$WORK_ROOT/chunks/per_run/$run_id")
   done < <(run_ids_for_split "$specs_file" train)
 
-  [[ "${#merge_args[@]}" -gt 0 ]] || fail "No train POD5 specs were provided."
+  [[ "${#merge_args[@]}" -gt 0 ]] || fail "No train BAM specs were provided."
 
   echo "[merge train] $TRAIN_DATASET_DIR"
   python gen_data/merge_mafia_stage1_datasets.py \
@@ -307,18 +279,10 @@ run_dataset_check() {
     --output-dir "$CHECK_REPORT_DIR"
 }
 
-validate_stage() {
-  case "$STAGE" in
-    downstream|all) ;;
-    *) fail "STAGE must be one of: downstream, all. Current: $STAGE" ;;
-  esac
-}
-
 prepare_common_dirs() {
   mkdir -p \
     "$MANIFEST_DIR" \
     "$WORK_ROOT/pod5_input_dirs" \
-    "$WORK_ROOT/bam" \
     "$WORK_ROOT/chunks/per_run" \
     "$WORK_ROOT/chunks" \
     "$WORK_ROOT/models"
@@ -332,12 +296,11 @@ prepare_repo_context() {
 
 validate_inputs() {
   local specs_file="$1"
-  require_executable "$DORADO_BIN"
-  require_file "$DORADO_MODEL"
-  [[ -n "$MODIDEC_POD5_SPECS" ]] || fail "Set MODIDEC_POD5_SPECS to the MoDiDeC m6A POD5 path(s)."
-  [[ -s "$specs_file" ]] || fail "No POD5 specs were parsed."
-  while IFS=$'\t' read -r run_id _split path; do
+  [[ -n "$MODIDEC_BAM_SPECS" ]] || fail "Set MODIDEC_BAM_SPECS to run:bam:pod5."
+  [[ -s "$specs_file" ]] || fail "No BAM specs were parsed."
+  while IFS=$'\t' read -r run_id _split bam path; do
     [[ -n "$run_id" ]] || continue
+    require_file "$bam"
     require_file "$path"
     if [[ -d "$path" ]]; then
       has_any_file "$path" || fail "POD5 path has no files: $path"
@@ -349,12 +312,8 @@ validate_inputs() {
 
 print_config() {
   echo "[config]"
-  echo "  STAGE=$STAGE"
   echo "  REPO=$REPO"
   echo "  WORK_ROOT=$WORK_ROOT"
-  echo "  DORADO_BIN=$DORADO_BIN"
-  echo "  DORADO_MODEL=$DORADO_MODEL"
-  echo "  DEVICE=$DEVICE"
   echo "  CHUNK_LEN=$CHUNK_LEN OVERLAP=$OVERLAP"
   echo "  NEGATIVE_CHUNKS_PER_POSITIVE=$NEGATIVE_CHUNKS_PER_POSITIVE"
   echo "  NEGATIVE_EXCLUSION_BASES=$NEGATIVE_EXCLUSION_BASES"
@@ -365,13 +324,9 @@ print_config() {
   echo "  MODIDEC_HELDOUT_OLIGO_IDS=${MODIDEC_HELDOUT_OLIGO_IDS:-<all>}"
 }
 
-run_downstream_stage() {
+run_pipeline() {
   local specs_file="$1"
   local run_id
-
-  while IFS= read -r run_id; do
-    basecall_run "$specs_file" "$run_id"
-  done < <(awk -F'\t' '{ print $1 }' "$specs_file")
 
   while IFS= read -r run_id; do
     build_run_dataset "$specs_file" "$run_id" "$WORK_ROOT/chunks/per_run/$run_id"
@@ -397,16 +352,13 @@ run_downstream_stage() {
 }
 
 main() {
-  validate_stage
   prepare_common_dirs
   prepare_repo_context
   local specs_file
   specs_file="$(spec_file)"
   validate_inputs "$specs_file"
   print_config
-  if [[ "$STAGE" == "downstream" || "$STAGE" == "all" ]]; then
-    run_downstream_stage "$specs_file"
-  fi
+  run_pipeline "$specs_file"
 }
 
 main "$@"
