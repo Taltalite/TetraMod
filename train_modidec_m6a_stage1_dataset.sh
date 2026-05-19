@@ -41,10 +41,10 @@ NEGATIVE_EXCLUSION_BASES="${NEGATIVE_EXCLUSION_BASES:-0}"
 TRAIN_DATASET_NAME="${TRAIN_DATASET_NAME:-stage1_train_modidec_m6a_rna002}"
 HELDOUT_ROOT_NAME="${HELDOUT_ROOT_NAME:-heldout_modidec_m6a_rna002}"
 
-MODIDEC_BAM_SPECS="${MODIDEC_BAM_SPECS:-}"
+MODIDEC_BAM_SPECS="modidec_train:/data/biolab-nvme-pcie2/lijy/tetramod_modidec_rna002/bam/modidec_train.bam:/data/biolab-nvme-pcie2/lijy/tetramod_modidec_rna002/m6A_pod5"
 MODIDEC_HELDOUT_BAM_SPECS="${MODIDEC_HELDOUT_BAM_SPECS:-}"
-MODIDEC_TRAIN_OLIGO_IDS="${MODIDEC_TRAIN_OLIGO_IDS:-}"
-MODIDEC_HELDOUT_OLIGO_IDS="${MODIDEC_HELDOUT_OLIGO_IDS:-}"
+MODIDEC_TRAIN_OLIGO_IDS="modidec_m6A_01,modidec_m6A_02,modidec_m6A_03,modidec_m6A_04,modidec_m6A_05,modidec_m6A_06,modidec_m6A_07,modidec_m6A_08,modidec_m6A_09,modidec_m6A_10"
+MODIDEC_HELDOUT_OLIGO_IDS="modidec_m6A_11"
 
 MANIFEST_DIR="$WORK_ROOT/manifests"
 OLIGO_MANIFEST="$MANIFEST_DIR/modidec_m6a_oligos.tsv"
@@ -141,8 +141,8 @@ spec_file() {
 
 run_ids_for_split() {
   local specs_file="$1"
-  local split="$2"
-  awk -F'\t' -v split="$split" '$2 == split { print $1 }' "$specs_file"
+  local requested_split="$2"
+  awk -F'\t' -v requested_split="$requested_split" '$2 == requested_split { print $1 }' "$specs_file"
 }
 
 field_for_run() {
