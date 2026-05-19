@@ -331,3 +331,51 @@ tetramod train_promote "$MODEL_DIR" \
   --num-workers 4 \
   --no-compile \
   > /home/lijy/workspace/TetraMod/log/train_log/tetramod_trainpromote_mafia_stage1_260513_6motif_dataset.log 2>&1
+
+
+REPO=/home/lijy/workspace/TetraMod
+WORK_ROOT=/data/biolab-nvme-pcie2/lijy/tetramod_mafia_rna002
+DATA_DIR="$WORK_ROOT/chunks/stage1_train_mafia_6motif_wue_batch2_rlmix1_4"
+HELDOUT_ROOT="$WORK_ROOT/chunks/final_heldout_mix_1_4"
+MODEL_DIR="$WORK_ROOT/models/stage1_mafia_6motif_wue_batch2_rlmix1_4"
+OUT_ROOT="$REPO/val_res/mafia_stage1_6motif_epoch4"
+
+cd "$REPO"
+
+python validate/evaluate_mafia_stage1.py "$MODEL_DIR" \
+  --dataset-dir "$DATA_DIR" \
+  --split validation \
+  --weights 4 \
+  --device cuda:0 \
+  --batchsize 64 \
+  --num-workers 4 \
+  --output-dir "$OUT_ROOT/internal_validation" \
+  --write-sites
+
+for RUN_ID in Mix_1_A_RTA Mix_2_m6A_RTA Mix_3_A_RTA Mix_4_m6A_RTA
+do
+  python validate/evaluate_mafia_stage1.py "$MODEL_DIR" \
+    --dataset-dir "$HELDOUT_ROOT/$RUN_ID" \
+    --split train \
+    --weights 4 \
+    --device cuda:0 \
+    --batchsize 64 \
+    --num-workers 4 \
+    --output-dir "$OUT_ROOT/heldout_$RUN_ID" \
+    --write-sites
+done
+
+
+python dataset_check/check_mafia_stage1_dataset.py \
+  "$DATA_DIR" \
+  --output-dir "$REPO/dataset_check_res/stage1_train_mafia_6motif_wue_batch2_rlmix1_4/check_reports"
+
+
+python dataset_check/plot_mafia_stage1_visuals.py \
+  --motif-balance "$REPO/dataset_check_res/stage1_train_mafia_6motif_wue_batch2_rlmix1_4/check_reports/motif_balance.tsv" \
+  --internal-eval-dir "$REPO/val_res/mafia_stage1_6motif_epoch4/internal_validation" \
+  --heldout-glob "$REPO/val_res/mafia_stage1_6motif_epoch4/heldout_*" \
+  --output-dir "$REPO/dataset_check_res/stage1_train_mafia_6motif_wue_batch2_rlmix1_4/epoch4_figures" \
+  --training-csv "$MODEL_DIR/training.csv" \
+  --internal-label "Internal validation epoch4" \
+  --heldout-label "Final heldout Mix1-4"
