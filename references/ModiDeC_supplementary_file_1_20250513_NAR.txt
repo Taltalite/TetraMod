@@ -1,0 +1,797 @@
+     ModiDeC: a multi-RNA modification classifier for
+              direct nanopore sequencing
+
+                                          Supplementary Information
+
+Table of Contents
+SI 1. Creation of training data sets for ModiDeC ...................................................................... 3
+   Supplementary Table 1 ................................................................................................... 3
+   Supplementary Fig. 1 ...................................................................................................... 6
+SI 2. Testing neural network efficiency over reads used for the training phase ........................... 7
+   Supplementary Fig. 2 ...................................................................................................... 9
+........................................................................................................................................... 10
+   Supplementary Table 2 ................................................................................................. 10
+SI 3. ModiDeC validation results on unmodified read region in 004 ONT kit ............................. 11
+   Supplementary Fig. 3 .................................................................................................... 11
+SI 4. ModiDeC validation results for SQK-RNA002 ................................................................. 12
+   Supplementary Fig. 4 .................................................................................................... 12
+   Supplementary Fig. 5 .................................................................................................... 13
+   Supplementary Table 3 ................................................................................................. 14
+SI 5. Analysis of HEK293T cells with Dorado: selective organelle and ribosomal RNA .............. 15
+   Supplementary Fig. 6 .......................................................... Error! Bookmark not defined.
+   Supplementary Fig. 7: ................................................................................................... 16
+   Supplementary Table 4 ................................................................................................. 17
+SI 6. ModiDeC analysis on human blood sample ................................................................... 18
+   Supplementary Fig. 8. ................................................................................................... 18
+   Supplementary Fig. 9 .................................................................................................... 19
+   Supplementary Fig. 10 .................................................................................................. 20
+   Supplementary Fig. 11 .................................................................................................. 21
+SI 7. ModiDeC RNA modification features extraction ............................................................. 22
+   Supplementary Table 5 ................................................................................................. 22
+SI 8. ModiDeC user graphic interface .................................................................................... 23
+SI 9. False positive analysis on IVT ........................................................................................ 24
+   Supplementary Fig. 12 .................................................................................................. 25
+SI 10. ModiDeC architecture ................................................................................................. 25
+   Supplementary Fig. 13 .................................................................................................. 26
+
+
+                                                                     1
+2
+SI 1. Creation of training data sets for ModiDeC
+Supplementary Table 1: List of all oligonucleotides used for training ModiDeC. The
+incorporated modified bases pseudouridine (Ψ), 2'-O-methylguanosine (Gm), N6-
+methyladenosine (m6A), inosine (I), N1-methyladenosine (m1A) and 2'-O-
+methyladenosine (mA) are highlighted and color-coded as they appear in the main text and
+supplementary section.
+
+
+
+      Name                        Full sequence                   Internal modification
+      unmod.     GAUACGGGAGACAGCCACCGGAAUACGGGAGACAGCCACCUC                none
+
+       Psi #1    GAUACGGGAGUCAGCCACCGGAAUACGGGAGΨCAGCCACCUC          Pseudouridine (Ψ)
+       Psi #2    GAGCCAUGAUUAAGAGGGAGGAAGCCAUGAUΨAAGAGGGAUC          Pseudouridine (Ψ)
+       Psi #3    GAGGUGACUCUAGAUAACCGGAAGGUGACUCΨAGAUAACCUC          Pseudouridine (Ψ)
+       Psi #4    GAACCACGGGUGACGGGGAGGAAACCACGGGΨGACGGGGAUC          Pseudouridine (Ψ)
+       Psi #5    GAUGCGUGCAUUUAUCAGAGGAAUGCGUGCAΨUUAUCAGAUC          Pseudouridine (Ψ)
+       Psi #6    GAAGGCCAAGUAGCCCGUGGGAAAGGCCAAGΨAGCCCGUGUC          Pseudouridine (Ψ)
+       Psi #7    GAAUGCCACCUAGGGCAAGGGAAAUGCCACCΨAGGGCAAGUC          Pseudouridine (Ψ)
+       Psi #8    GAAAUGAUUCUUAGCAGGGGGAAAAUGAUUCΨUAGCAGGGUC          Pseudouridine (Ψ)
+       Psi #9    GACCUAGGGAUCUUCCGAAGGAACCUAGGGAΨCUUCCGAAUC          Pseudouridine (Ψ)
+      Psi #10    GAUCGAGGUCUCUGCAACCGGAAUCGAGGUCΨCUGCAACCUC          Pseudouridine (Ψ)
+
+
+       Gm #1    GAUACGGGAGGCAGCCACCGGAAUACGGGAGGmCAGCCACCUC      2'-O-Methylguanosine (Gm)
+       Gm #2    GACCGGGGAGGUAGUGACGGGAACCGGGGAGGmUAGUGACGUC      2'-O-Methylguanosine (Gm)
+       Gm #3     GAUAAUAACGGGUCUGUGAGGAAUAAUAACGGmGUCUGUGAUC     2'-O-Methylguanosine (Gm)
+       Gm #4    GACGUAGUUGGAUCUUGGGGGAACGUAGUUGGmAUCUUGGGUC      2'-O-Methylguanosine (Gm)
+       Gm #5     GAACUUCUUAGAGGGACAAGGAAACUUCUUAGmAGGGACAAUC     2'-O-Methylguanosine (Gm)
+       Gm #6     GAUGUGAAUUGCAGGACACGGAAUGUGAAUUGmCAGGACACUC     2'-O-Methylguanosine (Gm)
+       Gm #7    GACAUUGGAGGGCAAGUCUGGAACAUUGGAGGmGCAAGUCUUC      2'-O-Methylguanosine (Gm)
+       Gm #8    GACUUAGCAUGCGAGAGGUGGAACUUAGCAUGmCGAGAGGUUC      2'-O-Methylguanosine (Gm)
+       Gm #9    GAAAUCUUUCGCCUUUUACGGAAAAUCUUUCGmCCUUUUACUC      2'-O-Methylguanosine (Gm)
+      Gm #10    GAGGACUAGAGGCCGUAUGGGAAGGACUAGAGmGCCGUAUGUC      2'-O-Methylguanosine (Gm)
+
+
+      m6A #1    GAUACGGGAGACAGCCACCGGAAUACGGGAGm6ACAGCCACCUC      N6-Methyladenosine (m6A)
+      m6A #2    GAGUGCCAGGACCGACCAUGGAAGUGCCAGGm6ACCGACCAUUC      N6-Methyladenosine (m6A)
+      m6A #3    GACACCAGUGACUCCCAUAGGAACACCAGUGm6ACUCCCAUAUC      N6-Methyladenosine (m6A)
+      m6A #4     GAUAAACGAGACCGUCUAGGGAAUAAACGAGm6ACCGUCUAGUC     N6-Methyladenosine (m6A)
+      m6A #5     GAGUUAAGAGACUGAAUCUGGAAGUUAAGAGm6ACUGAAUCUUC     N6-Methyladenosine (m6A)
+      m6A #6     GAAGUACAAAACAAUCAUUGGAAAGUACAAAm6ACAAUCAUUUC     N6-Methyladenosine (m6A)
+      m6A #7     GAUUCAGAGAACCACUUGAGGAAUUCAGAGAm6ACCACUUGAUC     N6-Methyladenosine (m6A)
+      m6A #8     GAUAAACUUAACUCCAAAAGGAAUAAACUUAm6ACUCCAAAAUC     N6-Methyladenosine (m6A)
+      m6A #9    GAUCACUCGAACUUCAAGCGGAAUCACUCGAm6ACUUCAAGCUC      N6-Methyladenosine (m6A)
+      m6A #10   GAUUGUGGUAACGUCCCCAGGAAUUGUGGUAm6ACGUCCCCAUC      N6-Methyladenosine (m6A)
+
+                                            3
+ m6A #11               AACGCCUGGCm6AGCCGGAAGCC             N6-Methyladenosine (m6A)
+
+
+Inosine #1    GAUACGGGAGACAGCCACCGGAAUACGGGAGICAGCCACCUC           Inosine (I)
+Inosine #2    GAGCUCGCUUAGCAUGCGAGGAAGCUCGCUUIGCAUGCGAUC           Inosine (I)
+Inosine #3    GAGAGGGUCGAGAUCCACUGGAAGAGGGUCGIGAUCCACUUC           Inosine (I)
+Inosine #4    GAUUGCGGAUACCGAACGAGGAAUUGCGGAUICCGAACGAUC           Inosine (I)
+Inosine #5    GAGAGCUGGCACGAGGCUCGGAAGAGCUGGCICGAGGCUCUC           Inosine (I)
+Inosine #6    GAGCCCCAAAACGGCCGAUGGAAGCCCCAAAICGGCCGAUUC           Inosine (I)
+Inosine #7    GAUGGAGAGCACGAGGCCCGGAAUGGAGAGCICGAGGCCCUC           Inosine (I)
+Inosine #8    GAAUCUUGUCAAUGUCGUCGGAAAUCUUGUCIAUGUCGUCUC           Inosine (I)
+Inosine #9    GAUAUACGUCAGGCACCCUGGAAUAUACGUCIGGCACCCUUC           Inosine (I)
+Inosine #10   GAGGAACGGCACAGUUAUUGGAAGGAACGGCICAGUUAUUUC           Inosine (I)
+
+
+
+  m1A #1                CCACm1AAACCAUGGUGAGCAA             N1-Methyladenosine (m1A)
+  m1A #2               AACGCCUGGCm1AGCCGGAAGCC             N1-Methyladenosine (m1A)
+  m1A #3                AACGCCUGGCAGCCGGAAGCC                        none
+
+
+  mA #1                AACGCCUGGCmAGCCGGAAGCC              2'-O-methyladenosine (mA)
+
+
+
+
+                                      4
+5
+Supplementary Fig. 1: Oligonucleotide design and incorporation of oligonucleotides
+into sequencing construct via splinted ligation. (a) Oligonucleotides contain the modified
+and unmodified nucleotide (red) flanked by a 9-mer sequence of choice (bold, black).
+(b) Oligonucleotides are incorporated into a larger RNA construct via splinted ligation. A cDNA
+splint complementary to the 5' and 3'- ends of the IVT RNA and the oligonucleotides aligns
+the components for ligation by T4 RNA Ligase 2. Following ligation, the cDNA splint is digested
+by DNase, leaving behind the ligated product. (c) Ligation of sequencing constructs containing
+multiple oligonucleotides. Two complementary cDNA splints are supplied, one for each
+oligonucleotide. The alignment and DNase digestion process is as described in panel (b).
+
+
+
+
+                                              6
+SI 2. Testing neural network efficiency over reads used for the training phase
+
+In this part of the study we investigated whether we could identify a certain number of
+reads to use for the training phase. To this end, we trained ModiDeC to analyze
+pseudouridine RNA modifications (Ψ) using different amounts of training data.
+Specifically, we used 1,000, 5,000, 10,000, 20,000, and 30,000 reads for the training
+phase and then tested the efficiency of the neural network on new constructs (different
+from the training constructs) that contain a Ψ modification at a specific position. An
+unmodified motif is also present in the testing construct and used for the analysis. The
+confusion matrices for 1,000, 5,000, 10,000, 20,000, and 30,000 reads
+(Supplementary Fig. 2a–e) show prediction versus expectation for the modified
+position (Ψ) and for the unmodified position (G). We observed that increasing the
+number of reads for the training increased the percentage of correctly called Ψ (low
+right squares on the heatmaps), reaching a maximum value for 30,000 reads
+(Supplementary Fig. 2e). The unmodified position seems to follow a different trend
+than the modified one. To better understand the global effect of data training of neural
+network performance, we averaged the accuracy values of the main diagonal for each
+heatmap and then plotted the results versus the number of reads (Supplementary
+Fig. 2f). This plot shows that general performance depends on the number of training
+data used. We find the curve somewhat saturated at 10,000 reads, which suggests
+using a certain minimum number of reads in the training phase. However, it is difficult
+to reach a general conclusion because the results presented in Fig. 1e and
+Supplementary Fig. 4 show different frequencies of modification detection that depend
+on the RNA motif, although uniform training data were used during the training phase
+(each motif was trained with approximately 30,000 reads). Despite these mixed
+results, we suggest using minimum 10,000 reads as a reference value for future
+training.
+In this section, we also investigated the limit of detection (LOD) and quantification
+(LOQ) of ModiDeC by virtual titration analysis (See Supplementary fig. 2g-j). It consists
+on generating test baches with selected modification frequency by mixing modified
+and unmodified reads. We generated eleven titration batches (from 0% to 100%, with
+variation of 10%, expected modification frequency) for each of the four modification
+types and let ModiDeC analyze the data to see if the predicted and expected values
+matched. For each modification type titration batch, modified and
+
+
+                                           7
+8
+Supplementary Fig. 2: Confusion matrices on test data using ModiDeC trained with 1,000
+(a), 5,000 (b), 10,000 (c), 20,000 (d) and 30,000 (e) reads. Decimal fraction values are written
+inside each square. It is possible to observe an increase of true positives for pseudouridine
+predictions by increasing the training data batch. f) True-positive average values (y axis)
+plotted against the size of the training data batch (x axis). True positive average values were
+calculated by averaging the main diagonal of each confusion matrix. Performance seems to
+saturate after 10,000 training data. Virtual titration experiments for Gm (g), m6A (h), Ino (i),
+and Ψ (j). eleven titration experiments were generated (with different modification frequency)
+for each modification type. Comparison between ModiDeC (k) and Remora Gm (l) / Ino (m)
+models. Remora shows several false positives compared to ModiDeC.
+
+unmodified reads were randomly selected to generate a batch size of 1000 reads from
+the test data (see Fig. 1e for test data). The LOD and LOQ for each modification type
+were calculated using the following formula:
+
+               𝜎
+𝐿𝑂𝐷 = 3.3 ∗ ( 𝑆 )     (SI eq. 1)
+
+              𝜎
+𝐿𝑂𝑄 = 10 ∗ (𝑆 )       (SI eq. 2)
+
+Where σ is the standard deviation of the data and S is the linear regression slope
+obtained by fitting the virtual titration experiment. The analysis shows similar LOD and
+LOQ for all the four modification types. The average values are LODavg. = 1.1% and
+LOQavg. = 3.2%.
+
+Next, we compared ModiDeC and Remora model. In detail, we trained Remora two
+times to detect Gm (Remora Gm model) and Ino (Remora Ino model) using the
+ModiDeC training data. For each modification type, 30k chunks modified and 30k
+chunks unmodified were used for each motif (see Fig. 1 main text for the motifs). In
+total, Remora was trained with 600k chunks for each modification type for 20 epochs.
+The comparison between the two models shows that ModiDeC can detect the two
+expected positions, without any clear false positive, while Remora presents several
+false positive over the construct.
+
+
+
+
+                                               9
+Supplementary Table 2: Modified 9-mer sequences for the 40 oligos analyzed in Fig. 1e
+measured with the 004 kit. The table shows the true-positive, false-negative and modification
+miscall percentages obtained using ModiDeC. The expected true-positive percentage is 100%
+for all the 9-mers.
+
+
+
+
+                                           10
+SI 3. ModiDeC validation results on unmodified read region in 004 ONT kit
+
+ModiDeC results for the SQK-RNA004 data for unmodified reads region. The
+sequence region is the same for modified (Fig. 1e) and unmodified (Supplementary
+Fig. 3) data.
+
+
+
+
+Supplementary Fig. 3: The modification frequency on the test data for the 40 motifs used in
+this work for unmodified reads for (SQK-RNA004 kit). The green letter shows the canonical
+                                               11
+letter that is modified in Fig. 1e. The unmodified region shows baseline results as expected.
+SI 4. ModiDeC validation results for SQK-RNA002
+
+Here we show the results obtained from the validation of ModiDeC after training the
+neural network on the SQK-RNA002 Kit. A comparison of the data in Fig. 1e and
+Supplementary Fig. 4 shows the frequency of detecting modifications is similar for the
+002 and 004 kits. Supplementary Fig. 5 shows the results for the unmodified region.
+As expected, this region gave a practically baseline result, indicating that reads were
+not modified in the designed area.
+
+
+
+
+Supplementary Fig. 4: The modification frequency on the test data for the 40 motifs used in
+this work (SQK-RNA002 kit). The red letter 12
+                                            shows the modified base. We obtained similar
+results with the SQK-RNA004 kit data (see Fig. 1e).
+Supplementary Fig. 5: The modification frequency on the test data for the 40 motifs used in
+this work for unmodified reads with the SQK-RNA002 kit. The green letter shows the canonical
+letter that is modified in Fig. 1e. The unmodified region shows baseline results as expected.
+
+
+
+
+                                             13
+Supplementary Table 3: Modified 9-mer sequence for the 40 oligos analyzed in Fig. 1e
+measured with the SQK-RNA002 kit. The table shows the true positive, false negative and
+modification miscalls obtained using ModiDeC for the oligos analysis. Results are shown for
+each modified 9-mer. The expected true positive value is 100% for all the 9-mers.
+
+
+
+
+.
+
+
+
+
+                                            14
+SI 5. Analysis of HEK293T cells with Dorado: selective organelle and ribosomal
+RNA
+
+We performed Dorado analysis on HEK293T cells containing orthogonally translating
+film-like organelles. In details, EGFP and mCherry fluorescence protein sequences
+were analyzed using Dorado to quantify the amount of pseudouridine in specific
+sequence positions. Supplementary Fig. 6 shows the modification frequencies of
+pseudouridine (Psi), U–C mismatch, and unmodified reads detected by the Dorado
+model (Oxford Nanopore Technology) for the following three systems: without
+organelle (nO), with organelle (O), and control (C). The expected reference position of
+modification is shown below each bar plot (114 for EGFP and 564 for mCherry). Tables
+containing the results of the Dorado analysis for the three samples are shown next to
+each bar plot in Supplementary Fig. 6.
+
+
+
+
+Supplementary Fig. 6: Dorado analysis on EGFP (a) and mCherry (b) sequences for systems
+without organelle (nO), with organelle (O), and control (C). On the right of the plot, the Dorado
+analysis values for the three samples are tabulated.
+
+
+
+
+                                               15
+Additional information about the ModiDeC analysis on ribosomal RNA are reported
+below in the Supplementary Table 4.
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             A A
+
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     C
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     C
+                                                                                                                                                                                                                                                            A       C                                                                                                                                                                                                                    C
+                                                                                                                                                           A                                                                                                            C
+                                                                                                                                                               C                                                                                                                        A                                                                                                                                                                                                                A
+                                                                                                                                                                                                                                                                                A
+                                                                   A                                     A A                      C                                C                    C           C A A                          A C                                                           C
+                                                                                                     A                                                                                                                                                                                                       A                                                                                                                                                                                                                                                                                                     1400
+                                                       C                       C                                                                                                                                                                                                                                                                                                                                                                                                                                                          A                                                                                C
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   A                                              A                                                                                                 A C                    C C
+                                                       C                       C                                                                                                                                                                                                                             A                                                                                                                                                                                                                                                                                                                                                  C
+                                                                                                                          A                                                     C              C                                               C                                         C           A                                                                                                                                                                  A                         A C                A A C                            C           C                    C A                     C        A A       A                                     A C C C             A
+                                                        C                                                                                                                  C                                               A                                                    A                                                                                                                                                                                                                                                                                                                                                                                                               C
+                                                                                                                                       A                   C
+                                                                           C                                                                                                    950                                                                                                     1000                                                                                                                                                                        C
+                                                                           C                                                                                                                                                                                                                                                                                                                                                                                                 A                                                                                A                                    A                A                     C A A             C       C                   C
+                                                                                                                                                                                                                                                       A                                                                                                                                                                                                                                                                                                                                                                                                        C               C
+                                                           A                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  C                     C C
+                                                                                                                                                                                                                                                       C                                                                                                                                                                                                                                                                         A                    C                                     1450
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 1350                                                                 A                    A
+                                             A     C                                                                                                                                                                                                                    C                                                                                                                                                                                                                                                                         A
+                                         A                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 C
+                                     A                                                                                                                                                                                                                                  C                                                                                                                                                                                                                                                                     A                                              A
+                                                                                     A       50                                                                                                                                                                                                                              A       A                                                                                                                                                                                                                                A
+                                     C                                                                                                                                                                                                                                   A                                               C                                                                                                                                                                                                           C                                                       A
+                                                           A                                                                                                                                                                                                             A                                                                   A                                                                                                                                                                                                A
+                                                                                       A C C                                                                                                                                                                                                                                                                                                                                                                                                                                                                           C
+                                                                       A                                                                                                                                                                                                                                                                                                                                                                                                                                                                      A                                C C
+                                                                                                                                                           A                            C                                                              C                                                                 A                   C                                                                                         1300
+                                                                                                         C                                                                                                                                                                                                                               C                                                                                                                                                                                                    C                                        A
+                                                                                                                                                                                            900                                                        C                A                                                                                                                                                                              A                                                                                          A
+                                                                   A                                     A                                                      C                                                                                                                                                            C                                                                                                                                                                                                                                                             C
+                                                                                                                                                                                                                                                                         A                                                                                                                                                                 A                    C                                                                    C                                                                         C
+                                                                   A                                                                                                             A                                                                                                                                           A                                                                                                                                                                                                                                                                 C
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     C
+                                                                    A                                                                                                           A
+                                                                        A                            C                                                                                                                                                                                                                                   C
+                                                                               A A                                                                                              C                                                                       C                                                    1050                                                                                                                                               C                                                                                 C                                                A
+                                                                                                          A                                                                                                                                                                                                              A
+                                                                                                                                                                                                                                                        A                                                                                                                                                                                                                                                                                                                                              C
+                                                                                                                                                                C                                                                                                                                                        A                                                                                                                     A
+                                                                                                                      A                                                                A                                                                                                                                                 A                                                                                                                 A
+                                                                                                                          A                                 C                                                                                                                                                                                                                                                                                                                    C
+                                                                                                  C                                                             C                                                                                                                                                            C                                                                                                                              C                                                                                 A
+                                                                                                                                                               A                                                                                                                                                                                                                                                                                                A                                                                A
+                                                                                                                          A                                                                                                    A                                        C                                                                                                                                                                                                                C
+                                                                                                         A                                                                         C                                                               A                                                                                                                                                                                                                                                                             C
+                                                                                                                              A                                                                                        A                                                                                                                                                                                                                               C
+                                                                                                                                                                                   C                                                                                A                                                        A                                                                                                                             C                                     A                                                    1500
+                                                                                                                                                            A                           A
+                                                                                                                                            A A                                                        A                                                                                                                                 C                                                                                                                  C                                                                                 C
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                             A
+                                                                                                     00                                                                                                                                                                                                                                                                                                                                    A
+                                                                                                                                                                                                                                                                                                                                         C                                                                                                                 A                                                                                  C
+                                                                                                                                                                                                                                                        A
+                                                                                                 A           C                                                                                                 A                                                A                                                            C                                                                                                                                                                               C
+                                                                                             A                                                                                             C                                                                                                                                                                                                                                                                                         A                           C                            C
+                                                                                                                                                                                                                                                                            C                                                            A                                                                                 C                                                             C A
+                                                                       C C                                                                                                                                                                                                      A                                                                                                                                                                  A
+                                                               C                                                                  C                                                                                                                                                                                                      C
+                                                                                                                                      C                                                                                                                                                 A                                A                   C                                                                                                 C
+                                         C                                                                C                                                                                                                                                                                                                                                                                                                                                                                                                                           A
+                            C C                                                         C            C                                     C
+                                                                                                                                                                                                                                                                A                                                        A                   A                                                                                             C                                                             C
+                           C                                                                  C                                        C                                                                                                                                                         A A                         A                                                                                         C                                                                                     A
+                                                                                                                                                                                                                                                                                                                                             A                                                                                         C
+                                                       C C                 C                                                                                                                                                                                                                                 C                                   A                                                                                                                                                                   C                                A
+            A                                    C C                               750
+                                                                                                                              C C                                                                                                                                                   C
+                                                                                                                                                                                                                                                                                                                                                     A                                                                                                                                                               A
+     C                                       C                                                                                                         A                                                                                                                                                                                                                                            1 10 0                         C                                                                                             C C
+                       A          C                                                                                           C                                                                                                                                                             C                                                            C                                                       C                                                                                                                C
+                                                                                                                                                                                                                                                   C                                                                                                                                                                           C
+                 C                                                                                                        C                     C                                                                                      A               C                                                                                                                                                                                                                                                                                      C
+     A      C                                                                                                                                                                                                                                                                                    A                                                                                                      A
+                                                                                                                                                                                                                                       C                                                                                                                                                                                                                                                                                                      C
+                                                                                                                                                                                                                                                                                                 A                                                           A                                           C
+                                                                                                                  C                                                                                                                                     C                                                                                                                                                               C                                                                                                          C
+                                                                                                                                  C                                                                                                                                                                  A                                                                                                                 A                                                                                                           C
+                                                                                                              C                                                                                                                    A                                                                                                                                                                                                                                                                         C               C                                                                                                                                              C
+                                                                                                                                                                                                                                                                                                         A                                                                                                       C                                                                                       C                                                                                                                                                              C           C
+                                                                                                          C                                                                                                                                                                                                                                                      C C               A C          C                                                                                                                                A C
+                                                                                                                                      700                                                                                      C                                                                             A                                                                                                                                                                                       A                                                                                                                                                                              A
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            A C
+                                                                                                                                                                                                                                                                A                                                                                                                                                    C                                                                           A
+                                                                                                     C                                                                                                                             C
+                                                                                                                      C                                                                                                                                     A                                                                                                                  C                A                     C                                                                          A                                                C                                                                                                                         C
+                                                                                                 C                                                                                                                                                                                                                                       C                                                                                                                                                                                                                                                                                                    A C       C
+                                                                                        C A                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           C             C
+                                                                                                                                                                                                                                                                                                                             A           C                                             1 15 0 A                                                                                                                                                                                                                                   C                                     C
+                                                                                       C                                                                                                                                                                                                                                                                                                                A
+                                                                                                                                                                                                                                                       C                                                                     C                                                                               C                                                                                                                       C
+                                                                                   A                                                               A
+                                                                                                                                               A               C                                                                                                                                                                                                                                                 C          A                                                A C                                                              C
+                                                                                                                                           A                                                                                                           C                                                                                                                                                                                                                                                         A       A                                                                                              1550
+                                                                                                     C                                                          C                                                                                                                                                    C                                                                                               A A                                                 C                                                                        A
+                                                                               C                                                                                                                                                                       A                                                                                                                                                                                                                                                                                      C
+                                                                                             C                                                                                                                                                                                                                                                                                                                                                                          A                                                                                                                                               C                               A
+                                                                                                                                                                                                                                       C                                                                                                                         A             A                                                                                                                                                     C
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                         A                   A                                                                                                                 A                          C         A
+                                                                                                                                                                                                                                                                                                                                                                                                             C                                                               C           C                                                    C                                                                                                C
+                                                                                         C                                                          C                               A                                                                                                                                                                                                                                                                          1250                                                                                                                                                                   C
+                                                                   A                                                                                       A                                                                                           C                                                   A                                                                                                                                                                                                                                                                                                   C
+                                                                                     C                                                                                               A                                                                                                                                                                                                                       A
+                                                                                                                                                            C                                                                  A A                                                                        A                                          C                 A                   C          A A                                                                                                                                                                                          C
+                                                                            C                                                                                                              C                               C                                                                                                                             A A                                                                                                                                                                         C        C
+                                                                                                                                                                   C                                                                                                                                     A
+                                                                                                                                                                                                                                                                                                                             20                                                                                                                                                                                                       C
+                                                                                                                                                                                                   A                                                                                650                                                      A                                                                                                                                                                                                                                                                          A A
+                                                                                                                                                                                                                                                                                                                                                 A                                                                                                                                                                                                                                                             C
+                                                                                                                                                                                                                                                                                                                                                         A                                                                                                                                                                                    C                                C                                    C
+                                                                                                                                                                                A                                                      A                                                    A                                                                                                                                                                                                                                                                                                              C
+                                                                                                                                                                                                                           600                                                                                   A               A                                                                                                                                                                                                   A                                     A                       C
+                                                                                                                                                                                                                                                                                                                                     C C
+                                                                                                                                                                                                               A                                        C                                                                                                                                                                                                                                                                                                                                      A
+                                                                                                                                                                                                                                                                                                                                                         C                                                                                                                                                                                    A               C
+                                                                                                                                                                                                                                                            C                   A
+                                                                                                                                                                                                A                      C                                                                                             C                                       C                                                                                                                                                                                    C
+                                                                                                                                                                                                                           C                            A                                       A C                                                                                                                                                                                                                                                       A                    C
+                                                                                                                                                       550                                          A                                                                                                                C                                                 A
+                                                                                                                                                                                                                                   A                    A           C                A                               A                                       A
+                                                                                                                                                C                                      A                                                                                                                                                                               A 1200                                                                                                                                A
+                                                                                                              C           A                C           C                        A                                                                                                                                                                                                                                                                                                                                                                                     A
+                                                                                                                                                                                                                                                        A                                                                                                                                                                                                                                                                        A A
+                                                                                                                                                                                                                                                                                                                                                                                                                                                           C    C                                                                             A
+                                                                                                                                                                                                                                                                        C                                            5                                                                     A C                   A A                       C A                          A C          C       A                                                                             1600
+                                                                                                                                                                                                                                                                                                                                                         10
+                                                                                                                      C           C                            A C A                        A A C A A                               A A                                                                                                                                                                                                                                                                          C
+                                                                                                                                      A                                                                                                                                         30                                                                                                                                                                                                                           C                                        C
+                                                                                                                                                                                                                                     A
+                                                                                                                                                                                                                                A                                                                                                                                          A C                                            C C C                                                      A               C A                                                  A                    A
+                                                                                                                                                                                                                               A                                                                                                                                                       A                                                               C C C
+                                                                                                                                                                                                                                                                                                                                                                           C                                                                                                         A                                                                        A
+                                                                                                                                                                                                            AC                                     C                                                                                                                       A                                                                                                                                                                                                       C
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 A 1650
+                                                                                                                      C                                 A                                                                              C                                                                                                                                   C 1700                                                                                                                                                                                     A
+                                                                                                                  C                                                                    A                                                                                                                                                                                                                                                                                                 A                           A
+                                                                                                                                                                                                                                   A                                                                                                                                       C                   A A                                                                                                                                                                     C
+                                                                                                                 C                                                                                                         A                                                                                                                                                                                                                                                                                                                                               C
+                                                                                                                                                                                                                   A                                                                                                                                                                       C
+                                                                                                                  A                                                                                                            A                                                                                                                                                                                                                                                                                                                                               C
+                                                                                                                              C C C                             C C A                       A                                                                                                                                                                              C                A                                                                                                                                                                                                      A
+                                                                                                         500                                                                                                                                                                                                                                                                                                              C C                      A                                                                                                                               C
+                                                                                                                                                   C           C                            A                                                                                                                                                                                                   A                                                                                                                                C
+                                                                                                                                                        A                                                                                                                                                                                                                  C                                                                                                                                 C
+                                                                                                                                                                                            A                                              A
+                                                                                                                                                                                                   C           C                                                                                                                                                           C                                                                                        A
+                                                                                                                                                                                                                                           A                                                                                                                                                                     A A                   C               C C A                1 50
+                                                                                                                                                                                                                   C                                                                                                                                                                       C                                                                                                                                                                                           A                       C
+                                                                                                                                                                                                                                                                                                                             C C                                                                                                                                                                                                                                                                           A
+                                                                                                                                                                                                                                       C                                                                                                                                                                                                                                                                                                                                                               A
+                                                                                                                                                                                                                                                                                                                                                                                                             A                                                                                                               C            C
+                                                                                                                                                                                                                                       C                                                             C           C
+                                                                                                                                                                                                                                           A           50                                                    A                                                         C                                                                                                                                                                  A
+                                                                                                                                                                                                                   A                                                                         C                                                                                                A                                                                                                                                  A
+                                                                                                                                                                                                                                                                                        A                                                                                                                    C                                                                                                                       A
+                                                                                                                                                                                                                   C                                                                                                                 A                                                       A
+                                                                                                                                                                                                                                                                                                                                                                                                             A
+                                                                                                                                                                                                               A                       C A                          A A                                                      A C                                           C                A
+                                                                                                                                                                                                           C                                                C                                                                                                                              A
+                                                                                                                                                                A                   A A                                                                                                     A            A
+                                                                                                                                                                                                                                                                                     C               A                                                                     A
+                                                                                                                                                               A                                                                                                                                                                                                                                             A
+                                                                                                                                                                C                                                                                                                                                                                                          C
+                                                                                                                                                                        C                                                                                                                                                                                                                  A                 3
+                                                                                                                                                                                                                                                            C
+                                                                                                                                                                                    A C                                                                                                                                                                                    A                A
+                                                                                                                                                                                      A
+                                                                                                                                                                                                                                                         A                                                                                                                  C
+                                                                                                                                                                                       C
+                                                                                                                                                                                A C                                                                     A                                                                                                                   C
+                                                                                                                                          450
+                                                                                                                                                                       C                                                                                                                                                                                                                   A
+                                                                                                                                                   C                                                           A                                                                                                                                                           A
+                                                                                                                                           A
+                                                                                                                                                                                    A                                              C                                                                                                                                                       A
+                                                                                                                                          A
+                                                                                                                                                                        C                                          A
+                                                                                                                                           A
+                                                                                                                                                                       C                                                           C
+                                                                                                                                                                               A                                                                                                                                                                                                           C
+                                                                                                                                                   A
+                                                                                                                                                                                                C C                                    A                                                                                                                                   A
+                                                                                                                                                                           C                                                                           100
+                                                                                                                                                                                                                                                                                                                                                                                           A
+
+                                                                                                                                                                                                               C
+                                                                                                                                                                                                                                                                                                                                                                                           C
+                                                                                                                                                                           A                                   A                               A
+                                                                                                                                                                    A                                                                                                                                                                                                                      A
+                                                                                                                                                   A C
+                                                                                                                                                      400                                                                                   A
+                                                                                                                                                                                                                                           A
+                                                                                                                                                                C A
+                                                                                                                                                         C                  C                              C C                                                                                                                                                             A
+                                                                                                                                                        A                                           C                              C                                                                                                                                                       C
+                                                                                                                                                                                                    A                              A                                                                                                                                                       A         1 00
+                                                                                                                                                                                           C                       C                                                                                                                                                                            A
+                                                                                                     C                                                                              A                                                                                                                                                                                  A
+                                                                                                          C           A C C A                                              A                                                                                                                                                                                                               C
+                                                                                                                                                                       C
+                                                                                   C
+                                                                                                                                                                                                    350            C               A                                                                                                                                        C
+                                                                                    C                            A                             A                                                                   A
+                                                                                                                                                                                                                                                                                                                                                                            C
+                                                                                             C                                                             C
+                                                                                                                                                                                                                                                                                                                                                                           C               C
+                                                                                                                                                                                                                   A
+                                                                                                                                                                                                                                                                                                                                                                                           A
+                                                                                                                                                                                                                                           C                                                                                                                               C
+                                                                                                                                                                                                               C                                                                                                                                                                           A
+                                                                                                                                                                                                                                           C
+                                                                                                                                                                                                                                                                                                                                                                                           A
+                                                                                                                                                                                                                                                                                                                                                                           A
+                                                                                                                                                                                                                                                                                                                                                                                        A
+                                                                                                                                                                                                                   A
+                                                                                                                                                                                                                                                                                                                                                                           C
+                                                                                                                                                                                                                   C                                                C
+                                                                                                                                                                                                                                                            C                   C
+                                                                                                                                                                                                                   C
+                                                                                                                                                                                                                                                   C                             C                                                                                                      C
+                                                                                                                                                                                                                   C
+                                                                                                                                                                                                                                                                                                                                                                 1750 C                        C
+                                                                                                                                                                                                                                        C
+                                                                                                                                                                                                               A                                                                C                                                                                     C
+                                                                                                                                                                                                                                                         C                                                   150
+                                                                                                                                                                                                                                                   A C C                                 A
+                                                                                                                                                                                                                                                                                                     A                                                                      C
+                                                                                                                                                                                                                                                                                                                                                                                               A
+                                                                                                                                                                                                                                                                                                         A
+                                                                                                                                                           C                    C              A        C                                               C                                                        C                               A                          C
+                                                                                                                              C                                                                                                                                                                                                                                                            C
+                                                                                                                                                                                                                                                                                                                                                  A
+                                                                                                                              C                                                                                                                                                                                                                                             C
+                                                                                                                                  C C C C                       C          C            C                                                                           A C                                              A           A       C
+                                                                                                                                                                                                    A                                                                           A                        C                                                                  C
+                                                                                                                                                                    A                                                                                   C
+                                                                                                                                                                                                           C                                            C                                A A
+                                                                                                                                                                                    C                                                                                                                                                                                                      C
+                                                                                                                              A                                                                            C                                                                                                                                                                               C
+                                                                                                                                  C                                     C                                                                           A
+                                                                                                                                                                        C                                                                          C                                                                                                                                       C
+                                                                                                                                                       300
+                                                                                                                                  C                                     A
+                                                                                                                                                                   A                                       C
+                                                                                                                                           A                                                                                                                                                                                                                                C
+                                                                                                                                                       A                                           A
+                                                           C                                                                                                                                                                                                                                                                                                                            C
+                                                               C                                 C                                                                                                                                     C
+                                     C                                                                                                                              A                                                                                                                                                                                                                   A
+           C C                                         C                           C                                                                                                                               C                                                                                                                                                           C       C
+ C                                                                                                                                                      C                                                                                                                                                                                                                          C
+                                                                                                                                                                                                                                       C
+                                                                                                                                                        A
+ C
+     C C         C C   C         C       C C C                     C                     C C                                                                                                                   A
+                                                           A                                C                                                          A                                                                                       A
+                           250                                                                       A                                                                                                                                 C
+                                                                                                         A                                  C
+                                                                                                              C C                      A                                                                                               C
+                                                                                                                          A A A                                                                                                        C
+                                                                                                                                                                                                                                       C
+                                                                                                                                                                                                                                       C
+
+
+                                                                                                                                                                                                                       C
+                                                                                                                                                                                                                                   C
+
+                                                                                                                                                                                                                   200
+
+
+
+
+Supplementary Fig. 7: RNA45SN1 RNA complete structure. The letters highlighted are the
+modified bases with trainings-motives as recognized by ModiDeC (red = Psi, blue = Gm). The
+numbers next to these letters indicate the reference position.
+
+
+
+                                                                                                                                                                                                                                                                                                                                         16
+  Expected 18S       Dorado (Ψ)       Dorado (Ψ)        ModiDeC          ModiDeC
+  position + mod.     Position +       Position +       Position +       Position +
+    frequency       mod. frequency   mod. frequency   mod. frequency   mod. frequency
+                      (sample 1)       (sample 2)       (sample 1)       (sample 2)
+ 217-218 (100%)       217 (64%)        217 (71%)       217 (48.6%)       217 (56%)
+  295-296 (25 %)      295 (16%)        295 (26%)       295 (31.5%)      295 (47.4%)
+  405-406 (87%)       405 (63%)        405 (81%)       405 (57.4%)      405 (66.9%)
+  917-918 (42%)       915 (20%)        915 (32%)       917 (26.5%)      917 (46.8%)
+
+Supplementary Table 4: Comparison between literature (reference 61 in the main text),
+Dorado Ψ model, and ModiDeC on the Ψ sites detected in this work. The table shows both
+position and modification frequency. Sample 1 = Nucleus; Sample 2 = Cytoplasm
+
+
+
+
+                                          17
+SI 6. ModiDeC analysis on human blood sample
+
+ In this section, it is possible to find additional ModiDeC analysis on human blood
+sample. Supplementary Fig. 8 shows additional m6A sites that ModiDeC was able to
+detect during the analysis on the gene TP53.
+
+
+
+
+Supplementary Fig. : Human blood RNA analysis using ModiDeC. Additional m6A sites that
+ModiDeC was able to detect during the analysis on the gene TP53. These peaks are currently
+not annotated in RMBase v3.0 database. Although further validation analyses are needed for
+these peak values, we found them interesting enough to show for follow-up work.
+
+
+
+
+                                           18
+Supplementary Fig. 9: a–e) Examples of annotated m6A peaks (black dashed lines) from the
+atlas database that were detected by ModiDeC. f) Table showing the annotated m6A peaks
+from the atlas database detected by ModiDeC. The detected motif (the orange letter
+represents the m6A modification), chromosome, and annotated and predicted chromosome
+positions are shown.
+
+Supplementary Fig. 9 shows additional m6A positions identified by ModiDeC that were
+also confirmed by the m6A-Atlas database. Supplementary Fig. 9 a-d shows four of
+the nine positions obtained by ModiDeC with their corresponding modification
+frequency. Figure 9f shows a table summarizing the ModiDeC results. These are the
+recognized motifs, the annotated and the predicted chromosome positions. Additional
+analysis and the broader large transcript reference region are shown in Supplementary
+Fig. 10.
+
+                                          19
+Supplementary Fig. 10: ModiDeC analysis on human blood RNA. a) ModiDeC analysis and modification
+frequency detection on selected transcripts with a large reference region of 1000 nt. Each subplot shows the
+comparison between normal and IVT human data for a specific transcript. The lowest intensity peaks in the
+IVT data shows that peaks in normal data are not false positives. b) 20 nt zoom of the ModiDeC analysis for
+a few transcripts. In this case, the x axis shows the reference nucleotides, and RNA modifications are correctly
+assigned to the nucleotide base to which they belong.
+
+
+
+
+                                                     20
+Supplementary Fig. 11 shows the ModiDeC analysis performed on RNA oligos with same
+sequence context and containing different RNA modification types with similar chemical
+structure.
+
+
+
+
+Supplementary Fig. 11: ModiDeC analysis on RNA oligos with same sequence context and
+containing different RNA modification types with similar chemical structure. The analysis was
+performed on (a) unmodified oligos, (b) m1A, (c) m6A, and (d) mA modified oligos. (e) Table
+showing the expected and ModiDeC-predicted modification frequency for each motif.
+
+
+
+
+                                             21
+SI 7. ModiDeC RNA modification features extraction
+
+Here we compared the transcription motifs detected by ModiDeC, that were confirmed
+by the m6A atlas database (see also Supplementary Fig. 9f), with those used for
+training the neural network. The comparison is shown in Supplementary Table 4. The
+table shows that only one of the detected motifs exactly matches a training mofit. The
+other detected motifs match partially or with a combination of training motifs. For
+example, looking the second row in the table and the motif CAAAACUGA, it can be
+reproduced by the CAAAA and ACUGA parts of two different training motifs. Gray
+letters show the missing trained nucleotides in the detected motif.
+
+
+
+
+Supplementary Table 5: Comparison between m6A-modified motifs detected in ModiDeC and
+trained motifs. The detected motifs are not always exact matches with the trained ones. Gray
+letters show the missing trained nucleotides in the detected motif. The detected motifs were
+also confirmed by the Atlas database (see also Fig. 5g in the main text).
+
+
+
+
+                                            22
+SI . ModiDeC user graphic interface
+
+We created three graphic user interfaces (GUIs) that can be used to generate, train,
+or analyze data with ModiDeC in a user-friendly environment (Fig. 6, main text). The
+ModiDeC GUI can be used in several ways, from retraining the neural network to
+directly analyzing an aligned sample using a pretrained neural network. In this section,
+we give an overview of how these three GUI can be used individually or all together in
+sequence to generate a personalized ModiDeC neural network. We decided to create
+the GUIs to give the opportunity to adapt and customize ModiDeC for specific
+problems. A full tutorial on how to use ModiDeC can be found in the GitHub page (see
+Code availability in the main text for the link).
+
+Fig. 6 (main text) shows a general overview of the ModiDeC GUIs. The GUIs are titled
+”ModiDeC data curation”, “ModiDeC training”, and “ModiDeC analysis”. Each section
+represents a different step in retraining or using ModiDeC for a final analysis. The GUI
+“ModiDeC data curation” (Fig. 6, main text, top) helps the user to create data sets for
+training the neural network. As one can see from the graphical interface, it is possible
+to personalize the creation of the training data to a great extent. It is important during
+pre-processing to correctly assign the output labels and relative signal information for
+proper and correct neural network training. In fact, important features such as
+“modification position”, “type of modification” or “chuck size” (or sliding window size)
+can be personalized as input for the graphical interface for ensuring that signal-to-
+sequence information is stored correctly and learned during training. To start the
+“ModiDeC data curation” GUI, three elements are needed: 1) the pod5 folder (where
+measured pod5 files are stored); 2) the aligned .bam file of your data (stored in a
+folder); 3) the ONT level k-mer table for re-squiggle. It is important that data are base-
+called using the --emit-moves flag during base calling because it will change the .bam
+file for re-squiggle. After opening these three elements using the GUI, it is possible to
+set the variables that lets the user decide how to chop and label the signal during the
+re-squiggle. After selection, pressing the “start resquiggle” button will start the GUI
+generating the training data in a selected save folder. In detail, the GUI will pre-process
+the data in two phases. The first phase consists of the re-squiggle (signal-to-sequence
+assignment), where signal and the sequence are cut in personalized windows and
+stored in the memory. In the second phase, the modification is assigned correctly to
+the sequence and the output label is generated consecutively to have precisely assign
+
+                                             23
+a modified sequence to a signal. Next, raw signal, sequence, and labels are stored in
+a .npz file and they are ready to be used as training in the “ModiDeC training” section.
+
+In the “ModiDeC training" GUI (Fig. 6, main text, middle), it is possible to retrain the
+neural network using the training data created in the previous step. Loading the folder
+of the training data using the graphical interface and setting neural networks
+parameters such as epochs and batch size, it is possible to start training the neural
+network. After the training, the trained model is saved in a selected folder and a
+personalized ModiDeC for a selected problem is ready to use in the analysis section.
+
+Having a training model, it is then possible to start the “ModiDeC analysis” GUI (Fig.
+6, main text, bottom). In this user interface we can load our model and pod5 and bam
+files to analyze the data that we are interested in. After initialization (a step to load the
+model and some variables), it is possible to select the number of reads to analyze and
+then start the neural network analysis. After pressing the button “Start analysis with
+neural network”, ModiDeC analyzes the raw signal of the data and results are saved
+in the working folder with the name “ModiDeC_analysis.npz”. To check the analysis,
+clicking the “visualize results" button a new window will open, and the analysis can be
+visualized in an interactive way.
+
+SI 9. False positive analysis on IVT
+
+This section focuses on the analysis of false positive rates on ITV transcript. 200
+transcripts were used for the analysis. In detail, we analyzed two things: i) the
+maximum false positive rate per transcript (Supplementary Fig. 11a); ii) the average
+amount of false positive detected per transcript and their value range (Supplementary
+Fig. 11b). The false positive rate analysis shows that ~99% of the data have a
+maximum false positive value below 6%, while only 1% have a false positive value
+between 6-8%. We also calculated the mean value µ = 1.9 % and standard deviation
+σ = 1.5 %, suggesting a ModiDeC minimum threshold ≈ 5% for biological data
+(calculated by 2* σ from the µ value). The analysis to quantify the number of false
+positives shows that total amount of false positive, on average, is about 200 for a
+transcript length of 2191 nucleotide. Moreover, the analysis shows that most of the
+false positive are between 1-4%.
+
+
+
+
+                                             24
+Supplementary Fig. 12: a) Quantification of IVT transcripts max false positive rate over 200
+transcripts. About 99% of transcripts has a maximum false positive below 6%. b) quantification of
+false positive amount per transcript and their false positive value range. The analysis was
+performed over 200 IVT transcripts. The average length of the transcripts is 2191 nucleotides.
+
+
+
+
+  SI 10. ModiDeC architecture
+
+  ModiDeC is a multi-layer neural network with ~20M of parameters that combines Z-
+  score normalized raw signal, one-hot encoding sequences and new personalized
+  Inception blocks to classify multiple RNA modifications at the same time from ONT
+  measurements. Supplementary Fig. 11a shows the ModiDeC architecture used for this
+  work. The neural network has two inputs: i) the raw signal input, or input 1), that has a
+  dimension of (400,1); ii) the one-hot sequence input, or input 2, that has a dimension
+  of (40,4). The two inputs are processed differently compared to each other. The input
+
+
+
+
+                                               25
+Supplementary Fig. 13: a) ModiDeC main architecture. It is a two-input neural network that
+combine raw signal and one-hot encoded sequence to detect RNA modification on the
+sequence. b) Personalized inception block used for the Input 1 pathway. c) Personalized
+inception block used for the input 2 pathway.
+
+1 goes through convolution 1D (Block 1D, Supplementary Fig. 11b), Bi-LSTM and
+maxpooling layers. After three times, the output is reshaped into (40,1280) to match
+the first dimension of Input 2 for Concatenation. In parallel, Input 2 is also processed
+but only with convolution 2D layers (Block 1D, Supplementary Fig. 11c). In the end,
+the two processed inputs are concatenated and sent through Dense, Bi-LSTM layers.
+The Output last layer is a Dense layer with a sigmoid activation function with a
+
+                                           26
+dimension (40, M), where M is the number of different types of modifications to
+analyze. The Sigmoid activation function is used for the last layer to better predict
+output with different length size.
+
+
+
+
+                                         27
+

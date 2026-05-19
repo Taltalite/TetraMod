@@ -205,6 +205,11 @@ def parse_modified_sequence(sequence: str, center_index: int | None = None) -> t
             .replace("m6a", "A")
         )
         parsed_center = len(prefix)
+        if center_index is not None and int(center_index) != parsed_center:
+            raise ValueError(
+                f"Explicit center_index={center_index} disagrees with modification token position "
+                f"{parsed_center} in {sequence!r}"
+            )
     else:
         canonical = normalize_sequence(text)
         if center_index is not None:

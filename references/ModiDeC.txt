@@ -1,0 +1,1260 @@
+Nucleic Acids Research, 2025, 53, gkaf673
+https://doi.org/10.1093/nar/gkaf673
+Chemical Biology and Nucleic Acid Chemistry
+
+
+
+
+ModiDeC: a multi-RNA modification classifier for direct
+nanopore sequencing
+Nicolò Alagna1 ,† , Stefan Mündnich2 ,† , Johannes Miedema1 , Stefan Pastore2 , Lioba Lehmann1 ,
+Anna Wierczeiko1 , Johannes Friedrich1 , Lukas Walz2 , Marko Jörg2 , Tamer Butto 2 ,
+Kristina Friedland 2 , Mark Helm 2 ,*, Susanne Gerber 1 ,3 ,*
+1
+  Institute of Human Genetics, University Medical Center Mainz, Mainz 55128, Germany
+2
+  Institute of Pharmaceutical and Biomedical Science (IPBS), Johannes Gutenberg University Mainz, Mainz 55128, Germany
+
+
+
+
+                                                                                                                                                             Downloaded from https://academic.oup.com/nar/article/53/14/gkaf673/8208110 by guest on 19 May 2026
+3
+  Institute for Quantitative and Computational Biosciences (IQCB), Mainz 55128, Germany
+*
+  To whom correspondence should be addressed. Email: sugerber@uni-mainz.de
+Correspondence may also be addressed to Mark Helm. Email: mhelm@uni-mainz.de
+†
+  The first two authors should be regarded as Joint First Authors.
+
+
+
+Abstract
+RNA modifications play a crucial role in various cellular functions. Here, we present ModiDeC, a deep-learning-based classifier able to identify
+and distinguish multiple RNA modifications (N6 -methyladenosine, inosine, pseudouridine, 2 -O-methylguanosine, and N1 -methyladenosine) using
+direct RNA sequencing. Alongside ModiDeC, we provide an extensive database of in vitro-transcribed and synthetic sequences generated with
+both the new RNA004 chemistry and the old RNA002 kit. We show that RNA modifications can be accurately recognized and distinguished across
+different sequence motifs using synthetic data as well as in HEK293T cells and human blood samples. ModiDeC comes with a graphical user
+interface and an Epi2ME pipeline that allows easy customization and adaptation to specific research questions, such as learning and classifying
+additional RNA modifications and further sequence motifs. The reproducibility across samples, together with the low rate of false positives,
+underscores the potential of ModiDeC as a powerful tool for advancing the analysis of the epitranscriptome and RNA modification.
+
+
+Graphical abstract
+
+                     Designed RNA                       Personalized multi-classifier                                         Analysis
+                                                                  training                                              1
+                                                                                                                            Sample 1
+                    IVT
+                                                                                                            frequency
+
+
+
+
+                                                                                                                                  Ψ
+                                                                                                               Mod.
+
+
+
+
+                                                          ModiDeC
+                                    Gm                                                                                                    Gm
+                                                                                                                        0
+                       m6A                                                                                                  A C   U A G G
+                                                                                                 sequence
+
+
+
+
+                                                                                                                            Sample 2
+                                    Ino                                                                                 1
+                                                                                                            frequency
+
+
+
+
+                                                                                                                                  m6A
+                                                                                                               Mod.
+
+
+
+
+                                                                                                                                        Ino
+                        Ψ
+                                                                                                                        0
+                                                                                                                            A U    A C A G
+
+
+Introduction                                                                    are crucial for protein production and the growth and devel-
+Chemical alterations of RNA molecules can affect their struc-                   opment of eukaryotic cells [7–11].
+ture and stability as well as their interactions with proteins                    More than 170 different chemical modifications of RNA
+[1–4 and stabilize or alter their metabolism at several stages                  have been identified to date, giving us a glimpse of the complex
+of the cellular RNA life cycle [5]. Specifically, chemical modifi-              epitranscriptome landscape [12]. Among the most prominent
+cation of single nucleotides can interfere with RNA-dependent                   examples of RNA modifications are pseudouridine () [2, 13],
+mechanisms involved in cellular localization, gene transcrip-                   inosine (I) [14, 15], 2 -O-methylguanosine (Gm) [4, 16], and
+tion, and RNA processing and localization [6], all of which                     the N-methylation at positions 1 and 6 in adenosine (m1 A [17,
+
+
+Received: February 19, 2025. Revised: May 23, 2025. Editorial Decision: June 19, 2025. Accepted: July 1, 2025
+© The Author(s) 2025. Published by Oxford University Press on behalf of Nucleic Acids Research.
+This is an Open Access article distributed under the terms of the Creative Commons Attribution-NonCommercial License
+(https://creativecommons.org/licenses/by-nc/4.0/), which permits non-commercial re-use, distribution, and reproduction in any medium, provided the
+original work is properly cited. For commercial re-use, please contact reprints@oup.com for reprints and translation rights for reprints. All other
+permissions can be obtained through our RightsLink service via the Permissions link on the article page on our site—for further information please contact
+journals.permissions@oup.com.
+2   Alagna et al.
+
+
+18] and m6 A [19–22], respectively). For each of the before         tions in total and polysome-associated mRNA and a change
+mentioned modifications, it is known that an abnormal ac-           in translation efficiency related to the RNA modifications.
+cumulation or an insufficient level of RNA modifications can           These distinctions between several modifications and the
+cause severe cellular dysfunctions and diseases [23–26]. The        possibility to optimize the prediction accuracy for specific re-
+spectrum of human pathologies triggered by RNA modifica-            gions or specific RNA types are precisely the technological ad-
+tion disorders ranges from developmental disorders and im-          vances needed if we are to fundamentally understand how a
+munological deficits to neurodegenerative diseases and cancer       complex multitude of RNA modifications regulate health and
+in its various manifestations [ 8, 23–26].                          disease. In particular, clinical RNA diagnostics requires reli-
+    Several methods have been developed for investigating the       able and easy-to-use options for the detection of RNA modi-
+effects of RNA modifications on the transcriptome, including        fications that are integrated into standard software.
+MeRIP-Seq [27], m6ACE-Seq [28], Pseudo-seq [29], miCLIP                To overcome this challenge, we developed the Modifica-
+[30], and GLORI [31]. These methods combine antibodies or           tion Detector Tool (ModiDeC). This flexible and customizable
+chemical treatments with next-generation sequencing for de-         deep neural network can detect, classify, and quantify different
+tecting and characterizing transcriptome-wide RNA modifica-         modifications. ModiDeC should be considered less as a com-
+tions in short reads. Despite the significant discoveries made      petitor to other modification base callers that are designed to
+
+
+
+
+                                                                                                                                        Downloaded from https://academic.oup.com/nar/article/53/14/gkaf673/8208110 by guest on 19 May 2026
+using these methods, short-read sequencing technologies fre-        perform transcriptome-wide scans but more as a customizable
+quently struggle to accurately capture the diversity of RNA         tool that can be trained to be a highly specific classifier for
+modifications [1, 32, 33].                                          certain regions, motifs, and modifications of interest. To offer
+    Direct RNA sequencing (DRS) is currently revolutioniz-          the possibility of personalized training for individual research
+ing the field of epitranscriptomics research as a technol-          questions, we developed a graphical user interface (GUI) and
+ogy that enables the identification of RNA modification             an Epi2ME pipeline that allow the user to retrain ModiDeC
+at single-nucleotide resolution in long reads [34–41]. In           to search for user-defined specific sequences or motifs without
+nanopore sequencing, the passing of modified bases through          having to directly interact with the source code.
+the nanopores causes substantial changes in the expected               We demonstrate the performance of ModiDeC in analyz-
+current signal, enabling their identification, as impressively      ing synthetic sequences and selective RNA pseudouridylation
+demonstrated in recent years [41–44]. In principle, DRS-based       mediated by synthetic designer organelles [58] in HEK293T
+methods for detecting modifications can be categorized as           cell lines. In addition to synthetic approaches, ModiDeC was
+comparative or de novo detection. Comparative methods such          applied to rRNA data obtained from HEK293T cells and we
+as xPore [45] and DRUMMER [46] compare negative con-                verified its performance in detecting RNA modifications in hu-
+trols with DRS analysis to detect RNA modifications with            man blood samples. Finally, we demonstrate the extendibility
+good performance. However, their requirement for unmodi-            of ModiDeC by adding m1 A and mA (2 -O-methyl-A) to the
+fied control data limits their application. De novo methods         pool of classifiable modifications. The exemplified fields of ap-
+such as m6Anet [47], nanom6A [39], DENA [48], mAFiA                 plication in this study reveal the potential of ModiDeC as a
+[49], or Penguin [50] are based on training personalized deep       personalizable high-accuracy multi-RNA modification classi-
+neural networks using labeled datasets from sequences synthe-       fier, which can be extended and optimized as required for spe-
+sized in vitro or RNAs transcribed in vivo to obtain ground-        cific questions.
+truth labels for modifications. These methods achieve single-
+base resolution for the analysis of a selected RNA modifi-
+cation, thereby demonstrating a new way to reliably predict
+                                                                    Materials and methods
+RNA modification. In this respect, DRS holds great promise
+for opening up previously unknown areas of human disease            Plasmid preparation and in vitro transcription
+diagnostics and biomarker development, and for bringing             Plasmid sequences were cloned in a pUC57 vector contain-
+a technology-driven revolution to the field of epitranscrip-        ing an internal T7 promotor, followed by the desired tem-
+tomics.                                                             plate sequence and a restriction enzyme cutting site (either
+    However, despite the great progress, wider use of the tech-     MscI or SacII) at the end. The linearization reaction was per-
+nology has been hampered by several methodological ob-              formed overnight following the respective restriction enzyme
+stacles, particularly the still significant inaccuracy of predic-   manufacturer’s instructions (Thermo Fisher Scientific). Linear
+tions in biological data, the lack of large-scale gold standard     plasmids were purified by phenol–chloroform extraction fol-
+datasets for validation, and the evolving sequencing chemistry.     lowed by ethanol precipitation. Linearization of the plasmids
+The latter is especially pertinent, as it renders the prediction    and their overall quality were confirmed by separation on an
+tools that were specifically trained on certain features of one     agarose gel and quantified using a spectrophotometer (Nan-
+chemistry completely unsuitable. As a result, analyzing the         oDrop One).
+epitranscriptomic landscape for different types of RNA mod-            In vitro transcription (IVT) was performed using a HiScribe
+ifications with DRS remains a challenge [51]. Several recent        T7 High Yield RNA Synthesis Kit according to the manu-
+studies have, for example, highlighted the importance of be-        facturer’s instructions. If the transcription product required
+ing able to simultaneously detect multiple RNA modifications        5 phosphorylation for ligation, the concentration of the ter-
+[52, 53] and the growing potential of DRS for investigating di-     minal NTP (GTP, ATP, CTP, or UTP) was reduced, and the
+verse RNA species and their modifications, including transfer       reaction was supplemented with NMP (GMP, AMP, CMP, or
+RNA [54], ribosomal RNA (rRNA) [55], and other noncod-              UMP) at a ratio of 1:5 NTP/NMP.
+ing RNAs [56]. One example is a pioneering study focused on            Transcription products were purified using a Monarch
+the interplay between m6 A and  in messenger RNA (mRNA)            RNA Cleanup Kit (New England Biolabs, T2040), and their
+[57]. Using a specialized DRS pipeline, they were able to ob-       quality was assessed by separation on agarose gel and Nan-
+serve both the different effects of these two RNA modifica-         oDrop One analysis.
+                                                                                         A multi-RNA modification classifier   3
+
+
+Splinted ligation of RNA constructs                               ous phase (∼550 μl) was transferred into a fresh Eppi and
+RNA oligos were 5 -phosphorylated to utilize them in the         500 μl of isopropanol was added, thoroughly resuspended,
+ligation reaction. Phosphorylation was performed using T4         and incubated at RT for 15 min. Samples were centrifuged for
+polynucleotide kinase (New England Biolabs, M0201) follow-        10 min at 20800 × g at 4◦ C. The supernatant was discarded,
+ing manufacturer’s instructions. Phosphorylated oligos were       and the pellet was washed with 75% ethanol in nuclease-free
+purified using Oligo Clean & Concentrator Kit (Zymo Re-           water, followed by centrifugation for 5 min at 7500 × g at
+search, D4060) according to the manufacturer’s instructions.      4◦ C. The supernatant was discarded, and the pellet was air
+   Ligations were performed using T4 RNA ligase 2 (New            dried for 5–10 min. The RNA pellet was dissolved in 30 μl
+England Biolabs, M0239), combining equimolar amounts of           of RNase-free water and mixed in a high-shear rotor-stator
+in vitro-transcribed RNA and the ligating oligo, 1× T4 RNA        sample mixer (Hula Mixer, Thermo Fisher Scientific) for 10
+ligase buffer, 10% (w/v) PEG-8000, and 10 U T4 RNA ligase         min at RT, and RNA concentration was quantified using the
+2, as well as a complementary DNA (cDNA) splint ensuring          Qubit dsDNA Assay Kit (Invitrogen, Q32851).
+the correct order of ligation. Here, 2% less cDNA splint was
+supplied compared to the amount of in vitro-transcribed RNA
+or oligos present.                                                DRS library preparation
+
+
+
+
+                                                                                                                                    Downloaded from https://academic.oup.com/nar/article/53/14/gkaf673/8208110 by guest on 19 May 2026
+   The reaction mixture was prepared as above, omitting T4        Libraries were prepared with 1 μg of polyadenylated input
+RNA ligase 2 for an initial denaturation step at 75◦ C. After     material using either SQK-RNA002 or SQK-RNA004 kits
+cooling to 25◦ C over 15 min, T4 RNA ligase 2 was introduced      (Oxford Nanopore Technologies) according to the manufac-
+and the reaction was incubated at 16◦ C overnight.                turer’s standardized protocol. The prepared libraries were
+   The ligation reaction was stopped by digestion of the cDNA     quantified using the Qubit dsDNA Assay Kit (Invitrogen,
+splint using DNase I (Thermo Fisher Scientific, EN0525) ac-       Q32851). Libraries were loaded onto MinION flow cells and
+cording to the manufacturer’s instructions, followed by purifi-   sequenced with MinKNOW (version 24.02.26) set to fast live
+cation using an Oligo Clean & Concentrator Kit.                   base calling until no more sequencing pores were available.
+   The purified ligated constructs were polyadenylated using
+Escherichia coli poly(A) polymerase (New England Biolabs,
+M0276) according to the manufacturer’s instructions, and pu-      Peripheral blood
+rified again using an Oligo Clean & Concentrator Kit before       Peripheral blood was obtained from a healthy volunteer. RNA
+proceeding to library preparation. Purity and concentration       was extracted using a PAXgene Blood miRNA Kit (Qiagen)
+after each purification step were assessed using a NanoDrop       according to the manufacturer’s protocol, except that the
+One spectrophotometer.                                            RNA was eluted in nuclease-free water instead of the provided
+                                                                  buffer. The RNA was characterized using the Bioanalyzer (Ag-
+                                                                  ilent) total RNA nano assay according to the manufacturer’s
+Isolation of nuclear and cytoplasmic rRNA                         protocol. The RNA had a concentration of 363 ng/μl and an
+Isolation of nuclear and cytoplasmic rRNA was performed           RNA integrity number of 7.2. Globin mRNA was depleted
+as described in Pastore et al. 2025 [59]. Briefly, cells were     with the GLOBINclear-Human Kit (Thermo Fisher Scientific,
+trypsinized, washed with cold phosphate-buffered saline, and      AM1980) according to the manufacturer’s protocol; this was
+resuspended in nuclei isolation buffer [NIB; 10 mM Tris–HCl,      performed four times on a total input amount of 20 μg of
+pH 7.4, 10 mM NaCl, 3 mM MgCl2 , 0.1% IGEPAL CA-                  RNA to yield 11 μg of globin-mRNA-depleted RNA. The
+630, 0.1% Tween 20, 1% BSA (bovine serum albumin), 0.15           concentration was measured using a Qubit RNA HS Assay
+mM spermine, 0.15 mM spermidine, and 0.2 U/μl RNase in-           (Thermo Fisher Scientific). Two micrograms of RNA were
+hibitor]. Homogenization was performed with a loose pestle        stored for later use in the direct RNA run. The remaining 9 μg
+(10 strokes), followed by incubation for 15 min on ice and        of RNA was split into three aliquots of 3 μg, respectively,
+then centrifugation at 1190 × g for 5 min at 4◦ C. The cyto-      and used for poly(A) selection with the NEBNext Poly(A)
+plasmic fraction (supernatant) was collected, and Trizol was      mRNA Magnetic Isolation Module (New England Biolabs)
+added at room temperature (RT). The remaining pellet was          according to the manufacturer’s protocol. The poly(A) selec-
+washed twice with 500 μl of ice-cold NIB, centrifuged, and        tion resulted in a total yield of 23 ng, as measured with the
+resuspended in 300 μl of ice-cold NIB. For isolation of nu-       aforementioned Bioanalyzer assay. The sample had an aver-
+clei, 300 μl of 50% Optiprep solution (Stemcell Technologies,     age length of ∼1 kb. The sample concentration was measured
+07820) was mixed with the homogenate to form a 25% Op-            again using the aforementioned Qubit assay. Reverse tran-
+tiprep mix. This was layered over 30% and 40% Optiprep            scription, polymerase chain reaction (PCR), IVT, polyadenyla-
+gradients in a 2-ml tube, centrifuged at 20800 × g for 20 min     tion, and 5 capping were carried out according to the methods
+at 4◦ C, and nuclei (∼600 μl) were collected from the 30%–        of Tavakoli et al. [43] with modifications as follows. Each IVT
+40% interface. The nuclei were washed with nuclei wash            primer was used in the PCR at a final concentration of 0.5 μM.
+buffer (10 mM Tris–HCl, pH 7.4, 10 mM NaCl, 3 mM MgCl2 ,          The input amount of mRNA used for reverse transcription
+0.1% Tween 20, 1% BSA, and 0.2 U/μl RNase inhibitor), cen-        and PCR was 7.1 ng. The output amount of cDNA was 905
+trifuged at 1635 × g for 10 min at 4◦ C, and the supernatant      ng, as measured with a Qubit DNA HS Assay (Thermo Fisher
+was removed. Nuclease-free water was added to the nuclei to       Scientific). IVT was performed twice, each with an input of
+a volume of 500 μl and 500 μl of Trizol was added prior to        126.7 ng of cDNA. The outputs were pooled to yield 4.9 μg of
+RNA isolation.                                                    RNA, as measured with the Qubit RNA HS Assay. Libraries
+   For RNA isolation, nuclear and cytoplasmic fractions (∼1       were prepared using the direct RNA sequencing Kit (SQK-
+ml) were incubated at RT for at least 5 min. Chloroform (200      RNA004, Oxford Nanopore Technologies). The library out-
+μl) was added to the nuclear and cytoplasmic fractions. Sam-      put was 167 ng of RNA/cDNA hybrid (Qubit DNA HS As-
+ples were vortexed for 15 s, incubated at RT for 3 min, and       say). The complete library was loaded onto the PromethION
+centrifuged for 15 min at 20800 × g at 4◦ C. The upper aque-      RNA Flow Cell (FLO-PRO004RA).
+4   Alagna et al.
+
+
+Neural network training and data processing                         such that the training included both modified and unmodified
+ModiDeC is a two-input neural network with ∼20M param-              motifs.
+eters (see Supplementary Fig. S13) that combines personal-              For oligonucleotides containing m6 A, the sequences were
+ized and new structured inception blocks with long short-term       based on the evolutionarily conserved DRACH motif [19, 60].
+memory (LSTM) to classify RNA modifications. To train the           To ensure that ModiDeC distinguishes modifications based
+neural network, raw signals and the respective one-hot en-          on their specific signal rather than the surrounding sequence
+coded sequences are necessary. A minimal number of passages         context, one DRACH-motif-containing sequence was selected
+is required for the neural network to obtain the correct train-     to represent a single oligonucleotide motif across all modi-
+ing outcome. The raw pod5 files from all sequencing runs were       fication types. For the remaining motifs, we either mirrored
+first base-called using the high-accuracy model in Dorado           known modification sites in the human transcriptome, as
+v0.7.3 using the flag –emit-moves. Next, the raw signal was         reported in the Modomics database [14], or chose natu-
+preprocessed by re-squiggling to the reference the Z-score nor-     rally occurring sequences but without a known modifica-
+malized raw signal using Remora (Oxford Nanopore Tech-              tion background. A list of all sequence motifs is provided in
+nologies). The re-squiggled signal was then split in chunks         Supplementary Table S1. The oligonucleotides were then in-
+containing 400 raw-signal measurement points and the cor-           corporated between two in vitro-transcribed RNA sequences
+
+
+
+
+                                                                                                                                           Downloaded from https://academic.oup.com/nar/article/53/14/gkaf673/8208110 by guest on 19 May 2026
+responding sequence converted in one-hot encoding represen-         via splinted ligation, creating a larger sequence construct
+tation was assigned to each of them. Signal chunks and the          ready for sequencing (see the “Materials and methods” sec-
+one-hot encoded sequences (maximum sequence length of 40            tion and Supplementary Fig. S1B). Following this strategy, for
+nt) were used for the first (input 1) and second (input 2) inputs   all 40 modified constructs, we also created a corresponding
+of ModiDeC, respectively. No more preprocessing steps were          negative control without any modification.
+used for the input generation. In parallel, the one-hot encod-          The RNA004 flow cell was introduced by Oxford
+ing output of the neural network is also generated, in which        Nanopore Technologies for use on their DRS platform in
+each base is converted into its respective modified variant or      2023. Its new chemistry differs significantly from the SQK-
+into an unmodified label. A mixture of modified and unmod-          RNA002 kit in several ways [61], notably in k-mer length,
+ified data was essential for training ModiDeC, including IVT        dwell time, current level, and translocation speed. Because
+data for training the neural network. Ultimately, the neural        ModiDeC is intended for use with data acquired using the
+network was trained for three epochs with a learning rate of        old RNA002 or the new RNA004 sequencing chemistry,
+0.0001 using the Adam optimizer.                                    we double-sequenced all 40 constructs (once with the SQK-
+    To generate the training data for ModiDeC, the “Mo-             RNA004 kit and once with SQK-RNA002), together with the
+diDeC data curation” GUI was used to preprocess 30000               unmodified control, thus creating two identical datasets that
+reads for each motif used in this work (Fig. 1E). Ten thousand      differed only with respect to the kits/flow cells used in DRS.
+high-quality IVT reads (selected using samtools and filter flag     This allowed us to train an accurate model for each chemistry,
+q = 20) that aligned to the gen-code v46 transcripts were also      giving the user the flexibility to analyze any DRS datasets with
+preprocessed using the GUI and then used for the training. For      ModiDeC, regardless of the chemistry used (Fig. 1A).
+the sample analysis, we established a minimum threshold of              In addition, we designed five constructs for the initial testing
+500 reads for each transcript to ensure statistical reliability.    of ModiDeC. These constructs contained either no modifica-
+This value was decreased to 80 for IVT data as the number of        tion, one in a previously unknown motif, or two distinct mod-
+reads produced during IVT measurement can be small.                 ifications in motifs the model had been exposed to in training.
+                                                                    These sequences were also generated by splinted ligation, and
+                                                                    in the case of doubly modified constructs, the final construct
+                                                                    sequence alternated between the oligonucleotides and the IVT
+Results                                                             sequences to ensure sufficient distance between the modified
+Creating a training dataset for ModiDeC                             oligos. For details of the ligation process, see the “Materials
+To train a neural network to identify multiple modifications        and methods” section and Supplementary Fig. S1C.
+at different sequence motifs and distinguish them from one
+another, the neural network must be presented with various
+modifications in different sequence contexts. In this train-        Training and validation of ModiDeC neural network
+ing dataset, the sequence, location, and modification type          ModiDeC is a personalized two-input neural network that
+must be precisely known for each construct to form the              combines LSTM layers with a newly designed Inception-
+so-called “ground truth.” To provide such training data,            ResNet block to classify multiple RNA modifications si-
+we designed and sequenced chemically synthesized oligonu-           multaneously on the data. In detail, the neural network
+cleotides, allowing us to pick and choose the modified nu-          remaps the sequence by analyzing the signal, and each se-
+cleotide as well as the sequence context. By ligating those         quenced nucleotide is classified as either “unmodified,” ,
+oligonucleotides into a larger construct suitable for DRS,          Gm, I, or m6 A. ModiDeC was trained using the 40 splint-
+which performs optimally with long reads, we created mul-           ligated sequences, each containing one modified oligonu-
+tiple point-modified sequences with complete information            cleotide (Supplementary Table S1 and Supplementary Fig. S1A
+regarding their modification status. Details on the design          and B). Thirty thousand reads per modification and motif
+of the training data are provided in the Supplementary              were used for training. This number was chosen following
+Section S1. Ten oligonucleotides were created per modifica-         a pre-analysis investigating the change in prediction accu-
+tion type (m6 A, Gm, I, and ; see Supplementary Table S1)          racy as a function of altering the amount of training data.
+to give a total of 40 different oligonucleotides. Each oligonu-     As expected, the percentage of correctly accessed modifica-
+cleotide contained a 9-mer motif flanking the modified nu-          tion sites increases with the amount of training data (see
+cleoside, along with the same unmodified 9-mer sequence,            Supplementary Section S2 for more details). However, 90%
+                                                                                                             A multi-RNA modification classifier        5
+
+
+
+         A
+                        Gm
+                                         Splint                  Gm                    E
+                                        ligation
+
+
+                                    Training data
+                      Gm                     m6A                      Ino
+
+
+
+                                Ψ                        IVT
+
+
+
+
+                                                                                                                                                            Downloaded from https://academic.oup.com/nar/article/53/14/gkaf673/8208110 by guest on 19 May 2026
+                 DRS RNA002                         DRS RNA004
+
+
+                  Resguiggle                            Resguiggle
+         B
+                Raw signal                              sequence
+
+                                                    -ACCUCCA-
+                                                     -AAUUGAA-
+                                                         -CCUUUAC-
+
+         C
+                                       Designed block
+          sequence                                                          Psi
+                                                                            Ino
+                                                                            m6A
+                      Designed block                                        Gm
+                                              Bi-LSTM                       no-mod.
+              raw                                          sequence
+             signal
+
+
+         D
+
+
+
+
+Figure 1. Schematic representation of the workflow—from data generation to preprocessing, model training, and prediction. (A) Representation of
+oligos used for training ModiDeC. Modified and unmodified labeled reads were used for the training. (B) After base calling, data are re-squiggled to the
+reference and chunks with respective references are sent to the neural network. (C) Scheme of the ModiDeC neural network. (D) Example output after
+neural network analysis. (E) The modification frequency on the test data for the 40 motifs used in this work (RNA004 kit). The red letter is the modified
+base. Each panel shows the predicted frequency of modification (y-axis) with the respective modification type and modified motif reference (x-axis) in
+the oligos. For clarity, we visualize only the core motif of the 9-mer. The red letter indicates the modified base.
+
+
+accuracy can already be achieved with ∼5000 reads. With                               was created in parallel. The output of the neural network is
+more reads, the accuracy increases only minimally and almost                          a one-hot encoding representation, where each base is clas-
+reaches a plateau at 30000 reads.                                                     sified between “unmodified” or one of the four modification
+   After base calling, each read was re-squiggled to the ref-                         types (m6 A, Gm, Ino, and ). In total, >40 million labeled
+erence, cut into chunks of 400 time points, linked to their se-                       chunks were used to train ModiDeC (Fig. 1C). The final accu-
+quence, and then used for the input of the neural network (Fig.                       racy of the neural network to identify the correct modification
+1B; see also the “Materials and methods” section for more de-                         position after the training phase was higher than 91%. An ex-
+tails). For each chunk, an output label for the neural network                        ample of a ModiDeC analysis output is shown in Fig. 1D. Af-
+6   Alagna et al.
+
+
+ter selecting a pod5 file, the corresponding aligned bam file,     analysis of the unmodified control data sequenced with SQK-
+the reference, and the number of reads to analyze, ModiDeC         RNA002 to that we observed with SQK-RNA004. Although
+remaps each read and finally reports the frequency of pre-         we can discern a slight difference between the performances
+dicted modifications at the single-nucleotide level for each po-   of the models trained with the old and new chemistries, the
+sition in the reference.                                           amount of false-positive predictions is still low, ranging be-
+    We validated ModiDeC on a new dataset that contained           tween 0% and 5.5%.
+all the motifs and modifications used during training but had          In conclusion, the new RNA004 chemistry gives a slight
+never been seen or analyzed by the neural network. Five thou-      improvement in detection accuracy, but ModiDeC works reli-
+sand reads were used for each oligo. All test data were se-        ably with both the old and new chemistries. Of particular note
+quenced with SQK-RNA004. Figure 1E shows the results               here is the high accuracy of the position prediction (base-level
+of the validation analysis. The network correctly identified       resolution), as well as almost perfect classification. Since no
+the position and type of modification 100% of the time for         major differences were found between the two kits in terms
+the 40 sequence–modification combinations. The rate of cor-        of ModiDeC’s performance, and the SQK-RNA002 kit is no
+rect quantification of the occurring modification (detection       longer manufactured, we decided to focus on the results of the
+of the modification frequency) was 81%. However, this av-          SQK-RNA004 kit for further analysis in this study.
+
+
+
+
+                                                                                                                                        Downloaded from https://academic.oup.com/nar/article/53/14/gkaf673/8208110 by guest on 19 May 2026
+erage prediction accuracy is both motif- and modification-             Next, we tested ModiDeC on five RNA constructs previ-
+dependent. Although we can report impressive prediction ac-        ously unknown to the network and with varying complex-
+curacies of almost 100% for some motif–modification combi-         ity of modification. These constructs either carried no mod-
+nations, others were obviously more difficult to detect. This      ifications at all (Fig. 2A), carried one modification (Fig. 2B
+might also be partly due to the sequencing runs differing          and C), or contained two adjacent modifications at a spe-
+slightly in quality. In each individual case, however, a mod-      cific position in the sequence (Fig. 2D and E). These five con-
+ification was clearly identified (even if correct quantifica-      structs were designed as a random sequence, in which a to-
+tion was not always achieved). A detailed overview of true-        tal of six of the motifs examined here (unmodified or modi-
+positive, false-negative, and modification miscalling predic-      fied) were inserted into the sequences at specific positions (Fig.
+tions for each motif–modification combination is reported in       2). For the unmodified reads, the neural network correctly
+Supplementary Table S2.                                            returned zero modified positions (Fig. 2A). For the singly
+    Particularly interesting in this context are the results for   modified reads, ModiDeC identified constructs composed of
+the DRACH motif AGACA, in which a different modifica-              two oligos, one of which contained a position (73) modi-
+tion was introduced at the same position in each case (Fig.        fied as  (Fig. 2B and C). Oligos used for the construction
+1E, first row). The data show that ModiDeC correctly predicts      were identical in sequence between constructs and therefore
+that the A base in this DRACH motif is modified. However,          only differed by which oligonucleotide contained the modi-
+because we have inserted different modifications at the same       fied position. ModiDeC was able to correctly identify the po-
+motif, we can exclude that ModiDeC has learned only from           sitions modified and classify perfectly the type of modifica-
+the sequence in the training data that the DRACH motif, for        tion linked to those positions with an accuracy higher than
+example, stands for m6 A modifications. Instead, we can show       86%. The fact that both constructs shared identical oligonu-
+that ModiDeC can correctly distinguish and classify between        cleotide sequences highlights that ModiDeC accurately detects
+several modifications, even if a new modification appears on       the state of modification rather than assigns them based on
+an actual “typical” motif for another modification. Because        sequence patterns. Next, the systems of greatest complexity—
+ModiDeC makes an independent prediction for each individ-          those doubly modified—were analyzed using ModiDeC (Fig.
+ual read at the single-molecule level, even a mixed prediction     2D and E). For both oligos, the neural network was again able
+could also have been made. However, ModiDeC was able to            to identify correctly the positions of modification and classify
+distinguish precisely between the four modifications in every      the modification type linked to those positions with high ac-
+case. To determine the false-positive prediction rate precisely,   curacy (>85% of all modifications could be correctly detected
+we validated ModiDeC on the negative control data. We ob-          on a single-nucleotide level).
+served that ModiDeC has an extremely low false-positive pre-           From the test analysis, we observed that ModiDeC al-
+diction rate between 0% and 1% (Supplementary Fig. S3).            ways detected the modification position with a high frequency
+    Next, we wanted to test if similar results could be repro-     of modification. However, it seems to underestimate the ex-
+duced in the dataset sequenced using SQK-RNA002. To this           pected value by ∼10% on average. We decided to investi-
+end, we retrained and validated the neural network using the       gate the limit of detection (LOD) and limit of quantifica-
+same datasets but sequenced with the old chemistry. Also, with     tion (LOQ) of ModiDeC by virtual titration analysis (see
+SQK-RNA002-acquired data, ModiDeC shows great ability              Supplementary Fig. S2G–J). The underlying idea here is to
+to predict precisely the position and the corresponding mod-       generate test batches with selected modification frequencies by
+ification for each individual motif–modification combination       mixing modified and unmodified reads. We generated 11 titra-
+(for details of this analysis, see Supplementary Figs S4 and       tion batches for each of the four modification types (from 0%
+S5, and Supplementary Table S3). Interestingly, the SQK-           to 100%, with a variation of 10%, expected modification fre-
+RNA002 dataset also shows that some of the combinations            quency) and analyzed the data using ModiDeC to see whether
+can be excellently predicted, but for others, the network tends    the predicted and expected modification frequencies matched.
+to more frequently misclassify modifications as “unmodified.”      For titration batches of a respective modification type, mod-
+However, these are not the same combinations as in SQK-            ified and unmodified reads were randomly selected to gener-
+RNA004, which again suggests a difference in the quality of        ate a batch size of 1000 reads from the test data (see Fig. 1E
+the sequencing performance rather than a systematic bias in        and Supplementary Fig. S3 for test data). After this, the LOD
+the network’s predictions. Regarding the determination of the      and LOQ were calculated following the formula (see Equa-
+false-positive prediction rate, a similar result emerges from an   tions 1 and 2 in Supplementary data) after a linear regression
+                                                                                                        A multi-RNA modification classifier          7
+
+
+
+
+         A
+
+
+
+
+         B
+
+
+
+
+                                                                                                                                                         Downloaded from https://academic.oup.com/nar/article/53/14/gkaf673/8208110 by guest on 19 May 2026
+         C
+
+
+
+
+         D
+
+
+
+
+         E
+
+
+
+
+                 F
+
+
+
+
+Figure 2. ModiDeC analysis on new RNA oligos for reads with varying complexity. (A) unmodified, (B, C) singly modified, and (D, E) doubly modified
+reads. (F) Table showing the expected and ModiDeC-predicted modification frequency for each motif.
+8   Alagna et al.
+
+
+fit. The analysis shows similar LOD and LOQ values for the         by ModiDeC and compared it to the ratio derived from the
+four RNA modification types, with average values of LODavg.        -detection model implemented in Oxford Nanopore Tech-
+= 1.1% and LOQavg. = 3.2%.                                         nologies’ most recent base-caller Dorado (Fig. 3B). Although
+    Next, we compared ModiDeC with Remora. In detail, we           that model was able to detect the  sites, it did not reproduce
+trained two Remora models, one for Gm and one for ino-             the expected trend. In contrast, the predicted mCherry/EGFP
+sine modification type, using the same training data as for Mo-    pseuduridylation ratio was lower for the OREO-containing
+diDeC (see Supplementary Section S2) and compared the two          system (12.7-fold) compared to the OREO-free sample (16.9-
+neural network results on the test oligos containing an inosine    fold; see Supplementary Fig. S6 for Dorado--caller values).
+and a Gm modification (Fig. 2E). The results show that Mo-         This unexpected result can be mainly explained by the fact
+diDeC could obtain the expected position with no additional        that the  model from Dorado exclusively considers U-called
+false positive, while Remora shows several false positives over    sites and therefore overlooks mismatched bases. As shown by
+the construct (Supplementary Fig. S2K–M). The latter reveals       Schartel et al. and others,  can cause the motif-specific base-
+a higher efficiency on training data and a lower false-positive    calling error of a U–C mismatch in DRS data [43, 58]. Only
+rate (FPR) of ModiDeC compared to Remora for the given             by manually counting the U–C mismatches and adding these
+dataset.                                                           values to the results of the Dorado pseudouridine caller, the
+
+
+
+
+                                                                                                                                      Downloaded from https://academic.oup.com/nar/article/53/14/gkaf673/8208110 by guest on 19 May 2026
+                                                                   expected increase in the mCherry/EGFP ratio from 2.3-fold to
+                                                                   6.7-fold was observed upon switching from the OREO-free to
+HEK293T cell analysis: selective organelle and                     the OREO-containing system (see Supplementary Fig. S6 for
+rRNA                                                                and U–C mismatch Dorado values).
+To test the ability of ModiDeC to detect and quantify modifi-         In contrast, ModiDeC was able to reproduce the increase
+cations in physiological datasets, we continued our study us-      in mCherry/EGFP pseudouridinylation ratio in sample O ver-
+ing data obtained from HEK293T cells. The first example is         sus sample nO, by considering the detection of  only. We
+an already characterized “optimized RNA-editing organelles         also calculated the mCherry/EGFP ratio from a ModiDeC
+(OREO)” [58] that in combination with guide RNAs can se-           analysis performed in the same way as in the original study
+lectively pseudouridylate a target RNA. The OREO system            [58], where the  values obtained from the nontargeting
+has been tested on a selectivity reporter harboring two tar-       control system were subtracted (baseline correction) from
+get positions in mCherry and EGFP fluorescence protein se-         the pseudouridine counts of both organelle and no-organelle
+quences, in which the former is preferentially modified based      systems (Fig. 3C). The baseline-corrected ModiDeC analysis
+on an optimized recruiting system of the organelle. In detail,     showed fold changes of 2.8 and 17.6 for no-organelle and or-
+the organelles preferentially select the EGFP RNA, block pseu-     ganelle systems, respectively, which is consistent with the val-
+douridinylation in a specific position in the sequence, and re-    idating bisulfite-induced deletion sequencing values reported
+duce the amount of fluorescent protein produced by the cell.       [58].
+This means that by measuring the amount of pseudouridine              Next, we analyzed a fragment of 18S rRNA (Fig. 4A; for
+in specific target sites, it is possible to quantify and compare   a complete structure of 18S, see Supplementary Fig. S7). We
+the amount of EGFP and mCherry in the cell. In this regard,        chose this region because it contains documented modifica-
+the selectivity of pseudouridinylation was confirmed by mea-       tion sites [62]. In our synthetic training dataset (Fig. 1D), we
+suring the amount of pseudouridine in specific target sites of     integrated four motifs for  and three motifs for Gm, which
+mCherry (position 565) and EGFP (position 115) mRNAs               cover known and isolated modification sites on 18S rRNA (see
+in HEK293T samples transfected either with the designer or-        table in Fig. 4B). We analyzed two in vitro samples (sample 1,
+ganelle (sample O) or without the organelle (sample nO) using      rRNA from the cytoplasm; sample 2, rRNA from the nucleus)
+DRS together with the pseudouridine detection model (Ox-           of the 18S derived from HEK293 cells together with synthetic
+ford Nanopore Technologies).                                       18S IVT reads as a negative control (Fig. 4C). Because both
+   ModiDeC was used to reanalyze the EGFP and mCherry              samples originate from the same cell line, albeit from dif-
+datasets to track and quantify pseudouridine in three of the       ferent compartments, we expect a conservation of modifica-
+published samples, namely the sample with the organelle (O),       tion sites at varying frequency of modification. The ModiDeC
+without the organelle (nO), and a control sample without any       analysis of samples 1 and 2 shows a highly congruent pre-
+targeting system (C) for both RNA target sites in the selectiv-    diction of - and Gm-modified sites, precisely matching the
+ity reporter. For this purpose, ModiDeC was previously ex-         trained motifs (Fig. 4C, upper and middle panels). The pre-
+posed to the pseudouridine target positions modified in both       diction of modification frequency showed the expected vari-
+the training and testing phases (see Figs 1E and 2B and C).        ations between comparable loci of different conditions (e.g.
+The results are shown in Fig. 3A. We found that ModiDeC cor-       peaks 295 and 927; see Fig. 4B), while maintaining similar
+rectly predicted the expected position (red numbers in Fig. 3A)    dynamics between distinct loci within a sample. The classifi-
+and assigned a  modification to the U nucleotide. Comparing       cation of - and Gm-modified sites was confirmed for every
+the nO sample with the O sample, we observed a reduction in        predicted site. In addition, the analysis of 18S IVT data (Fig.
+ from 36% to 13.8% (2.61-fold) at the EGFP site, whereas          4C, bottom graph) shows a drastic reduction of the modifica-
+for mCherry the reduction was from 73% to 56% (1.3-fold).          tion frequency at modification sites matching trained motifs,
+The control sample also showed  peaks for EGFP (∼11%)             indicating a low FPR. Although rRNA has several modified
+and mCherry (∼3%). These values are consistent with those          sites [62], ModiDeC was trained only on a small number of
+published and experimentally validated in the original work        rRNA motifs containing a modification (see table in Fig. 4),
+by Schartel et al. in 2024 [56].                                   which were correctly detected during the analysis. This result,
+   Next, we calculated the mCherry/EGFP pseudouridine              together with the low FPR shown in the IVT analysis, indicates
+ratio, a measure of organelle selectivity, for both OREO-          the high selectivity of the neural network. Next, we wanted to
+containing and OREO-free systems for  counts predicted            compare the  modification frequency detected by MoDiDeC
+                                                                                                                   A multi-RNA modification classifier   9
+
+
+
+          A
+
+
+                                     EGFP nt:104-124                    EGFP nt:104-124                                   EGFP nt:104-124
+
+
+
+
+                                            114                                 114                                              114
+
+                                    mCherry nt:554-574                 mCherry nt:554-574                                mCherry nt:554-574
+
+
+
+
+                                                                                                                                                             Downloaded from https://academic.oup.com/nar/article/53/14/gkaf673/8208110 by guest on 19 May 2026
+                                             564                                564                                              564
+
+
+                                                    Dorado                                                                ModiDeC
+          B                          Dorado                        ModiDeC               C
+                                                   Psi-caller                                                        (baseline corrected)
+                                    Psi-caller
+                               20                    + U-C                                                    20
+                                                   mismatch                                                                      17.6
+                                     16.9
+              mCherry / EGFP
+
+
+
+
+                                                                                             mCherry / EGFP
+                               15                                                                             15
+                                            12.7
+                 fraction
+
+
+
+
+                                                                                                fraction
+                               10                                                                             10
+                                                         6.7
+                               5                                        4.1                                   5
+                                                   2.3           2.0                                                     2.8
+
+                               0                                                                              0
+
+
+
+
+Figure 3. HEK293T OREO system analysis using ModiDeC and Dorado. (A) ModiDeC analysis on HEK293T RNA samples without organelle (left), with
+organelle (center) and control (right) for EGFP (top row) and mCherry (bottom row). Red numbers and letters indicate the expected modified base and
+position. (B) mCherry/EGFP ratio calculated for organelle and no-organelle systems using Dorado pseudouridine model (Dorado--caller),
+Dorado--caller + U–C mismatch, and ModiDeC. Expected trends can be tracked with Dorado--caller + U–C mismatch and ModiDeC. (C)
+mCherry/EGFP ratio from ModiDeC after subtracting the control (baseline correction) for organelle and no-organelle systems.
+
+
+with both mass spectrometry (MS) measurements [62] and                        Detecting RNA modification in human blood
+the Dorado  model (Supplementary Table S4) to understand                     Next, we were interested in the general applicability of Mo-
+how well ModiDeC quantifies target modifications. The com-                    diDeC for diagnostic purposes. To this end, we tested Mo-
+parison shows that ModiDeC and Dorado show similar re-                        diDeC on human transcriptome data from the most common
+sults for these sites, while both exhibit values that deviate to              sample type in routine diagnostics, i.e. peripheral blood. It is
+varying degrees from the expected MS reference values, either                 important to mention that ModiDeC should be considered
+approaching or diverging from them, depending on the tar-                     less as a competitor to other modification base callers that
+get position values. These results suggest that ModiDeC can                   are designed to perform transcriptome-wide scans but more
+quantify, with good approximation, modified sites in in vitro                 as a customizable tool that can be trained to be a highly spe-
+samples.                                                                      cific classifier for certain regions, motifs, and modifications of
+   In summary, the analysis of the physiological HEK293T cell                 interest.
+data in the two examples above validates the performance and                     The following strategy was chosen to assess the accuracy of
+customizability of ModiDeC. Once trained on a specific con-                   the forecasts: We analyzed and compared both human periph-
+text, it can be used for the quantification of modifications in               eral blood from a healthy subject and the generated whole-
+biological systems (Fig. 3) as well as for precise detection and              transcriptome-wide IVT data from the same individual as a
+classification of position (Fig. 4). ModiDeC also showed im-                  negative control. ModiDeC predictions were then validated
+pressive reproducibility in its results.                                      with available experimental data from the literature.
+10    Alagna et al.
+
+
+
+         A                                                              B
+                                                                                                                  Prediction    Prediction
+                                                                                                                  Sample 1      Sample 2
+                                                                                                                    (45S)         (45S)
+
+                                                                                               Expected           Position +    Position +
+                                                                                                position             mod.          mod.
+                                                                             Sequence            (45S)            frequency     frequency
+
+                                                                         GGAG(Gm)UAGU           508-509          509 (11.1%)   509 (13.7%)
+
+                                                                         GGAG(Gm)GCAA           600-601          600 (38.3%)   600 (47.8%)
+
+                                                                         GUUG(Gm)AUCU           682-683          683 (9.3%)    683 (9.9%)
+
+                                                                          UGCA(Ψ )UUAU          217-218          217 (48.6%)    217 (56%)
+
+                                                                          ACUC(Ψ )AGAU          295-296          295 (31.5%)   295 (47.4%)
+
+
+
+
+                                                                                                                                                          Downloaded from https://academic.oup.com/nar/article/53/14/gkaf673/8208110 by guest on 19 May 2026
+                                                                          CGGG(Ψ )GACG          405-406          405 (57.4%)   405 (66.9%)
+
+                                                                          UGAU(Ψ )AAGA          917-918          917 (26.5%)   917 (46.8%)
+
+
+
+
+             C
+
+
+
+
+                             217      295        405         509      600      683                         917
+
+
+
+
+                             217      295        405         509      600      683                         917
+
+
+
+
+Figure 4. Analysis of 18S rRNA. (A) RNA45SN1 RNA structure. The highlighted letters are the modified bases recognized by ModiDeC (red = ,
+blue = Gm). The numbers indicate the reference position. (B) Table showing expected motif sequence, expected position (45S), and the ModiDeC
+analysis on samples 1 and 2. ModiDeC correctly predicts the positions, showing significant values for modification frequencies. (C) ModiDeC predictions
+for RNA34SN1 hg38 for sample 1 (top), sample 2 (middle), and IVT (bottom). Both samples 1 and 2 show distinct  and Gm peaks compared to IVT.
+
+
+   As an example, we chose the well-studied and annotated                     validated for peripheral blood, but only for human cell lines
+TP53 tumor suppressor, responsible for multifunctional tran-                  (HEK293). Although a tissue-specific methylation landscape
+scription factors, such as DNA repair or cell cycle arrest,                   must be assumed, we have nevertheless used this resource for
+and known to interact with the epitranscriptomic network                      validation. Since no database for m6 A sites in human periph-
+of m6 A [63–65]. ModiDeC was used to analyze the 33 tran-                     eral blood currently exists, this resource is the one that most
+scripts linked to the TP53 gene with the purpose of identi-                   closely matches our data in the literature.
+fying m6 A RNA modification sites that are indexed in the                        The database reports 49 possible m6 A RNA positions on
+RMBase v3.0 database [66]. It should be noted that the an-                    those transcripts linked to TP53. Aligning these positions
+notations of the RMBase v3.0 have not been experimentally                     with ModiDeC m6 A training motifs, the analysis could down-
+                                                                                            A multi-RNA modification classifier   11
+
+
+stream to 12 reported m6 A RNA positions that have a strong              Next, we wanted to show that ModiDeC can also recognize
+overlap with the training motifs, which we have therefore con-       further modifications, such as m1 A sites. For validating the
+sidered in the following. These 12 possible m6 A sites were cor-     predictions in the biological data, we selected a specific N1 -
+rectly detected by ModiDeC, and m6 A peaks were predicted            methylation of adenosine (m1 A) on the mitochondrial ND5
+at four of these sites in three different transcripts (Fig. 5A–E).   RNA, which is described in the literature for its biomedi-
+The dashed black lines in Fig. 5B–E indicate the expected posi-      cal relevance [18]. Due to the methodological difficulties in
+tion of the m6 A site as reported in the RMBase v3.0 database.       using commercially available nonspecific antibodies against
+All four positions have an exact overlap with the expected           m1 A, the sites of m1 A RNA methylation predicted to date are
+position. Moreover, the negative controls rule out a false pos-      highly controversial. Using a more stringent transcriptome-
+itive at the same positions in the IVT data. In addition to the      wide mapping approach, at single-base resolution, m1 A was
+four annotated m6 A sites, ModiDeC has detected three further        only detected in a low number of cytosolic mRNAs [17, 68]. Ir-
+m6 A positions (Supplementary Fig. S8) that might be very in-        respective of the approach used, numerous studies have clearly
+teresting candidates for further experimental validations. The       identified mitochondrial ND5 RNA modified with m1 A at po-
+other 37 possible m6 A RNA positions annotated in the RM-            sition 1374 [17]. However, the current mapping approach is
+Base v3.0 database were also investigated using ModiDeC.             rather complicated and time consuming. The ability to iden-
+
+
+
+
+                                                                                                                                        Downloaded from https://academic.oup.com/nar/article/53/14/gkaf673/8208110 by guest on 19 May 2026
+The analysis reported no additional m6 A positions detected at       tify m1 A sites based on DRS would be groundbreaking for the
+these sites. However, as mentioned above, these sites show sig-      field.
+nificant differences in motif sequence compared to those used            Therefore, we expanded the pool of classifiable RNA mod-
+for training ModiDeC (overlap between 20% and 30%), un-              ifications by introducing two additional motifs into the Mo-
+derlining the high selectivity of the neural network on trained      diDeC analysis: the first was a randomly chosen natural motif
+motifs.                                                              without a known modification context (CCACm1 AAACC),
+   To show that ModiDeC is also suitable for predicting              while the second was the specific motif of the mitochondrial
+the existence of all four modifications (m6 A, Gm, , and            ND5 RNA transcript sequence (UGGCm1 AGCCG) [18] (Fig.
+I) simultaneously in our human blood sample, we also ana-            5F). The full sequences, and that of the unmodified control, are
+lyzed a second group of transcripts, together with the match-        shown in Supplementary Table S1. The predictions on the val-
+ing IVT data (see Supplementary Figs S9 and S10). Here               idation data (generated using the same splint-ligation strategy
+again, we were particularly interested in transcripts that are       as before), together with the frequency of detection of these
+potentially clinically relevant. For example, the transcripts        motifs in the evaluation data, are shown in Fig. 5G. For our
+shown in Supplementary Fig. S9A–E are derived from genes             modified validation dataset, the average frequency recogni-
+known to be dysregulated in cancer. For example, CD147               tion was ∼82% and the modified site was accurately detected
+(Supplementary Fig. S9A) plays an important role in the de-          in both cases. We also detected the m1 A site in a new sam-
+velopment of various malignant tumors [66], while RAB11B             ple (having a sequence previously unknown to the network)
+(Supplementary Fig. S9E) is a member of the RAS oncogene             that contains the motif with an m1 A modification at position
+family [65]. Regarding potential validation, we were able to         70 (Fig. 5H, top) and compared it with the results from the
+validate the m6 A sites with the help of the m6 A-Atlas in the       unmodified control sample (Fig. 5H, bottom). ModiDeC cor-
+due course [67]. According to the table in Supplementary Fig.        rectly detected the position of m1 A with a frequency of around
+S9F, all the predicted m6 A motifs were confirmed by the ref-        71% (Fig. 5H, top). In the control sample (Fig. 5H, bottom),
+erence database; most of the predicted positions match the           almost every nucleotide is correctly classified as “unmodified”
+annotated ones exactly. Only two of the predicted positions          except a small peak with a frequency below 5% at position 76,
+are less precise, having positional shifts of 1 and 6 nt. How-       which might indicate a threshold for the reliability of results
+ever, we cannot confirm whether this observed deviation is due       from an m1 A analysis.
+to ModiDeC making an inaccurate shift in the prediction or               After the successful training with the modified oligos, the
+whether the annotation is imprecise at this point due to inex-       m1 A-expanded version of ModiDeC was then used to ana-
+act experimental resolution.                                         lyze the mitochondrial RNA that served as a template for the
+   To the best of our knowledge, there are currently no data         training motif. For this purpose, we again used the blood of
+resources for the other predictions that we could have used          the healthy subject and specifically targeted the mitochondrial
+to reliably confirm the validations for inosine and Gm. There-       ND5 RNA transcript (Fig. 5I). ModiDeC analysis showed
+fore, we refer to these only in the Supplementary data and           an m1 A peak with a modification frequency around 11% at
+note that, from our point of view, they are highly interest-         the expected position of 1374. The IVT data of the same
+ing points for further targeted experimental validation steps.       transcript were analyzed, and an m1 A prediction of <2%
+Following this strategy, we can therefore envision ModiDeC           was found in the same position; we considered this a false
+as a tool for the targeted prediction of previously unexplored       positive.
+modifications.                                                           Expanding ModiDeC to m1 A modification detection, we
+   Another interesting finding is that ModiDeC can also iden-        could observe that the neural network can classify correctly
+tify positions where the sequence differs slightly from the          RNA modifications with similar chemical structure (m1 A
+trained motif (Supplementary Table S5). All listed positions         and m6 A). To further investigate the capability to distin-
+contain at least one nucleotide that differs from the initially      guish between different modifications of the same ribonu-
+trained motifs (as listed in the Supplementary Section S1).          cleotide, ModiDeC was trained to detect m1 A, m6 A, and 2 -
+Some positions even contain partial combinations of the train-       O-methyl-A (mA), which are three RNA modifications hav-
+ing sequences. This suggests that ModiDeC recognizes fea-            ing similar chemical structures. The three modifications were
+tures of modifications in sequences that are even beyond the         inserted in the same sequence context, where the same 9-
+set of motifs used for training.                                     mer (UGGCAGCCG) contains one of the modifications in
+12    Alagna et al.
+
+
+                                             A                                              Gene TP53
+                           Chromosome
+                                                    ENST00000619186
+                               17
+                                                    ENST00000610623
+
+                                                    ENST00000269305
+
+                                         B                                                      C
+                                                   Expected                   Human                      Expected        Human
+                                                     m6A                      blood                        m6A           blood
+
+
+
+
+                                                                                  IVT                                       IVT
+
+
+
+
+                                                                                                                                                         Downloaded from https://academic.oup.com/nar/article/53/14/gkaf673/8208110 by guest on 19 May 2026
+                                         D                                                      E
+                                                   Expected                  Human                       Expected        Human
+                                                     m6A                     blood                         m6A           blood
+
+
+
+
+                                                                                  IVT                                       IVT
+
+
+
+
+                               F                                                            G
+
+                                                            mtDNA
+                                                                     ND5
+                                                      ND2
+                                                                      ND4
+                                                     COX1
+                                                                     ND3
+                                                       COX2
+                                                              COX3
+
+
+
+
+                                H                                                       I
+                                                              Human blood                                                 Test
+                                      Expected                                                         Motif             modified
+                                        m1A                                                         UGGCAGCCG
+
+
+
+                                                                                                                70
+
+
+                                                                            IVT                                          control
+
+
+
+
+                                                                                                                    76
+
+
+
+
+Figure 5. Detection of site-specific RNA modification in human peripheral blood samples. (A) TP53 gene cartoon representation from chromosome 17.
+(B–E) ModiDeC analysis on four different transcripts linked to the TP53 gene for the human blood sample and IVT datasets. While modification peaks are
+detected at the expected positions in the human blood, predictions on the IVT show very low values similar to a baseline. (F) Mitochondrial ND5 RNA
+showing the motif containing the m1 A modification (red “A”). (G) ModiDeC validation on two different 9-mers (9-mers are shown in the x-axis). The red
+letter indicates the modified base in the validation data. (H) ModiDeC results on modified test data (top) and control sample (bottom). The peak at
+position 70 indicates a modification classified as m1 A. The sequence is the mitochondrial RNA motif, with the modified base indicated in red. (I)
+ModiDeC analysis on a mitochondrial human blood sample (top) and mitochondrial IVT data (bottom). ModiDeC can detect the expected m1 A peak
+associated with the mitochondrial ND5 RNA.
+                                                                                           A multi-RNA modification classifier    13
+
+
+the middle. ModiDeC analysis on test oligos shows that the          Discussion
+neural network can classify correctly the three modification        The neural network ModiDeC was developed to recognize
+types, which all show high modification frequency as expected       whether an RNA nucleotide is modified at a specific position
+(Supplementary Fig. S11). Moreover, the analysis on unmod-          and assign it a specific modification. ModiDeC can be used
+ified oligos shows a low false-positive detection of ∼4%.           with DRS data sequenced with an SQK-RNA002 sequencing
+    The generation of false positives by ModiDeC was also in-       kit, as well as with those acquired with the newer RNA 004
+vestigated by analyzing at random 200 IVT transcripts (each         chemistry.
+with >80 reads per transcript) from the chromosomes here               To demonstrate its performance, ModiDeC was initially
+studied. In detail, we analyzed two things: (i) the maximum         trained on four different types of RNA modifications (m6 A,
+FPR for each transcript (Supplementary Fig. S12A) and (ii) the      Gm, I, and ) with 40 different motifs (10 for each type of
+average amount of false positive detected per transcript and        modification). Expanding this fundament, we demonstrated
+their value range (Supplementary Fig. S12B). The FPR analysis       that ModiDeC can be simply trained for further motifs or
+shows that ∼99% of the data have a maximum false-positive           new modifications, exemplified for a mitochondrial m1 A
+value below 6%, and ∼90% below 4%, while only 1% have               modification.
+a false-positive value between 6% and 8%. We also calcu-
+
+
+
+
+                                                                                                                                        Downloaded from https://academic.oup.com/nar/article/53/14/gkaf673/8208110 by guest on 19 May 2026
+                                                                       In this respect, ModiDeC should not be considered a com-
+lated the mean value μ = 1.9% and standard deviation σ =            petitor to approaches that perform global scans for a specific
+1.5%, suggesting a ModiDeC minimum threshold ≈5% for                modification but as a highly precise, complementary tool for
+biological data (calculated by 2σ from the μ value). The anal-      accurately determining and validating certain combinations of
+ysis shows that ModiDeC has on average 200 false positive-          motif and modification, with a biological and/or clinical con-
+predicted sites for a transcript length of 2191 nt. Moreover, the   text. Its strength is its ability to determine the exact position
+analysis shows that most of the false positive-predicted sites      and type of a modification, especially if there is great uncer-
+show a modification frequency value between 1% and 4%.              tainty about whether a modification even exists in a particular
+    In Summary, on the human data ModiDeC was able to               region. Using validation data with known ground-truth and
+make precise and reproducible predictions for m1 A and m6 A         unmodified IVT data, we showed that ModiDeC could cor-
+for mitochondrial and TP53 (chromosome 17) transcripts,             rectly identify the type of modification with 100% accuracy,
+respectively. Additionally, using synthetic oligos and human        even if different modifications at different locations were to
+blood data, we demonstrated that ModiDeC can be easily ex-          be detected in the same sample or even within the same motif
+tended with further modification classes (m1 A and mA) and          (see Fig. 1E; we added all four modifications once each at the
+motifs in addition to the initial 40 sequences on which it was      same position in the DRACH motif “AGACA”).
+originally pretrained (see Supplementary Table S1).                    ModiDeC clearly distinguishes itself from other excellent
+                                                                    tools already available for detecting RNA modifications that
+ModiDeC GUI: a GUI for retraining the model                         have been trained, for example, with randomer oligonu-
+To enable users, regardless of their expertise in bioinformat-      cleotides “randomers” (as e.g. in the case of the Dorado base
+ics, to use and expand ModiDeC, we created a user-friendly          callers) and are optimized for large-scale screenings for only
+pipeline that includes three GUIs (Fig. 6). These GUIs facili-      one particular type of modification. Although methods trained
+tate the use of the model for analyzing specific locations or       with randomers offer great advantage if the aim is to find
+RNA types to personalize it, or to retrain it without having        as many modifications as possible to obtain an overview of
+to directly interact with the source code. The pipeline con-        the entire epitranscriptomic landscape, they are less favor-
+sists of three parts: “ModiDeC data curation,” “ModiDeC             able if one is interested in a specific motif and wants to
+training,” and “ModiDeC analysis.” “ModiDeC data cura-              achieve the highest possible accuracy in terms of position and
+tion” (Fig. 6, top) supports the user in generating a dataset       quantification. Randomly generated sequences have the lim-
+for re-training the neural network. This GUI is highly cus-         itation (purely statistically) that some motifs will occur par-
+tomizable and allows the user to preprocess data by linking         ticularly frequently in the training data and will, therefore,
+output labels to signal information for the proper genera-          be recognized particularly well, while other motifs will be
+tion of training data. The “ModiDeC training” GUI (Fig. 6,          encountered relatively rarely in the training data and will,
+middle) allows the selection of neural network parameters,          therefore, be learned particularly poorly. However, by using
+such as batch size and epochs, and to retrain the ModiDeC           randomer-based approaches, it is very challenging and de-
+for the specific use. The “ModiDeC analysis” GUI can be             manding to influence which motifs are learned particularly
+used to visualize modification sites and corresponding mod-         well. It cannot be assumed that exceptionally well-trained mo-
+ification frequencies on the reference sequence (Fig. 6, bot-       tifs are biologically significant; indeed, underrepresented mo-
+tom). A more detailed explanation of the GUI inputs can be          tifs might be precisely those that are of particular interest to
+found in Supplementary Section S8. Additionally, a tutorial         the application-oriented user.
+for using the three GUIs can be found on the GitHub page               As also apparent with our own training data, even under
+(see the “Data availability” section). In parallel, we also de-     identical conditions, and with a very large amount of train-
+veloped an Epi2ME “ModiDeC pipelines” that allows the               ing data (30 000 identical sequences per motif–modification
+user to retrain ModiDeC also in the ONT platform. Similar           combination), some motifs were harder to learn and al-
+to the GUI, you can find three pipelines of ModiDeC called          ready showed a high false-negative rate on the synthetic data,
+as the three GUIs (“ModiDeC data curation,” “ModiDeC                whereas other motifs were much easier to remember (see Fig.
+training,” and “ModiDeC analysis”). The three pipelines fol-        1E and Supplementary Fig. S4). If such a “difficult” motif is
+low the same steps of the GUIs, but allow the user to adapt         then also underrepresented in randomized training data, it will
+ModiDeC to a specific problem using the Epi2ME program              most likely have a poor detection rate when the model is ap-
+from ONT.                                                           plied to biological data.
+14    Alagna et al.
+
+
+
+
+                                                        ModiDeC data curation
+                          Input files                             Pre-processing                              Graphic interface
+
+                                            ONT               Re-squiggle and extraction
+               .pod5         .bam          K-mer
+                                            file             raw signal          sequence
+
+                                                                               -AACUUGAU-
+
+
+                         Output files
+                                                               Assignment and labeling
+
+
+
+
+                                                                                                                                                           Downloaded from https://academic.oup.com/nar/article/53/14/gkaf673/8208110 by guest on 19 May 2026
+                                                                 labeling       Assign mod.
+                    .npz              .npz
+                      .npz              .npz                                   -AACU(Ψ)GAU-
+                        .npz              .npz
+
+
+
+
+                                                            ModiDeC training
+                                                                                                              Graphic interface
+                        Neural network
+
+                                                                Trained model
+
+
+
+                      ModiDeC
+
+
+
+
+                                                            ModiDeC analysis
+
+                                                             Graphic interface
+
+
+
+
+Figure 6. ModiDeC workflow to adapt the neural network to specific biological analysis using ModiDeC’s GUI. Schematic representation of the
+ModiDeC’s GUI pipeline. The GUI is divided into three communicative sub-parts, created for retraining the neural network or directly using it for data
+analysis. (Top) “ModiDeC data curation.” Raw data can be preprocessed to correctly create the input and output for the neural network training. (Middle)
+“ModiDeC training.” Helps the user to easily retrain the ModiDeC for their problem. (Bottom) “ModiDeC analysis.” Interface created to visualize and
+store the model analysis.
+                                                                                               A multi-RNA modification classifier     15
+
+
+    In a further complication, false-positive predictions,                  A major unresolved issue arises from systematically com-
+false negatives, and misclassified RNA modifications for                paring models that predict modifications from DRS data for
+transcriptome-wide predictions can rarely be validated owing            use in addressing biological questions. Most of the models
+to a lack of gold-standard datasets. For m6 A, larger experi-           already developed have been trained on RNA002 chemistry
+mentally validated benchmarking datasets for HEK293T cell               and only a few on data from RNA004 sequencing. Therefore,
+lines already exist [31, 52, 67], which allows predictions about        only a few benchmarks are representative, as these require that
+modifications to be validated to a certain extent. Also, a ref-         models are compared on differently generated data (some on
+erence catalog has been recently published for pseudouridine            RNA002 and some on RNA04). Additionally, all would have
+[43, 62]. However, these experimentally validated databases             the problem that an exact validation, apart from synthetic oli-
+should not be regarded as gold standards either, as false-              gos, would be impossible due to the lack of a gold standard
+positive or false-negative predictions cannot be ruled out, as          for biological data. Since such benchmarking would have been
+exemplified by several contradictory statements regarding the           outside the scope of this study—especially for the many mod-
+existence of certain modifications. Even for the already very           ifications considered here—we have refrained from doing so;
+well-familiar m6 A landscape of HEK293T cell lines, consid-             instead we refer to a recently published systematic review for
+erable uncertainty exists, as shown by the overlap between              m6 A base caller [70].
+
+
+
+
+                                                                                                                                             Downloaded from https://academic.oup.com/nar/article/53/14/gkaf673/8208110 by guest on 19 May 2026
+the CHEUI base-caller data and the GLORI database, which                    Furthermore, we call for an extensive and coordinated com-
+was tested in two independent studies in 2024 [49, 52]. Chan            munity effort to provide ground-truth data for establishing a
+et al. reported a site-level overlap of 0.64 and Mateos et al. de-      gold-standard database for various tissue types, to better vali-
+termined it to be 0.85. Similar observations have been made             date in silico predictions and, thus, to better train and compare
+for pseudouridine sites [69] and were also currently reported           the various tools for predicting modification detection.
+with respect to m1 A sites [17, 68]. Furthermore, a consid-                 Together with ModiDeC, we offer all our data as train-
+erably tissue-specific and even time-dependent modification             ing and validation data for other tools and classifiers. We are
+landscape must be assumed, which makes validation in other              providing an extensive database of carefully designed high-
+tissues or cell types highly speculative.                               quality training and validation data for various RNA modi-
+    In this context, a tool such as ModiDeC can be of great util-       fications, together with matching IVT data for synthetic data
+ity, as it can be applied explicitly to ill-defined and/or difficult-   and for HEK293 cell lines. In detail, we provide training and
+to-detect modifications and motifs for validation. In cases for         test datasets for both SQK-RNA002 (Supplementary Figs S4
+which we knew the exact truth and were thus able to validate            and S5) and SQK-RNA004 kits (Fig. 1 and Supplementary
+the predictions (Figs 1–5), ModiDeC correctly recognized the            Fig. S3), and the datasets for the RNA oligos with variable
+presence of a modification in one nucleotide every time, cor-           complexity (Fig. 2, SQK-RNA004 kits) and HEK293 IVT
+rectly identified the type of modification each time, and also          reads (Fig. 4, SQK-RNA004 kits).
+recognized the exact position of the modification in the vali-              Although ModiDeC can be used in various scenarios, in-
+dation data, even if the sequence surrounding the motif was             cluding human peripheral blood, our neural network model
+completely new because the algorithm had been trained on                is limited in that only 40 motifs were generated for the ini-
+different training data with a different sequence context. As           tial model training. This limits the tool’s utility in compre-
+demonstrated in several of the biological samples, we were              hensive genome-wide screens for routine diagnostic purposes
+able to show that when interested in specific issues or regions,        despite its ability to extract features outside the training pool.
+it is not necessary to first generate all possible motifs and per-      To offer the possibility of personalized training for individ-
+mutations around a particular modification. Rather, we have             ual research questions, we developed a GUI (including an
+already achieved very significant performance with a very lim-          Epi2ME pipeline) that allows the user to retrain ModiDeC to
+ited number of motifs (10 per modification).                            search for user-defined specific sequences or motifs. We also
+    Peak detection was made further reliable by continually             see great potential in that our data pool will be a seed for fur-
+training and validating our findings with matching IVT data             ther community-driven data generation. With the help of the
+that had a negligible FPR for the annotated positions (<2%)             GUI, any lab interested in a specific region in the transcrip-
+and a low FPR on the overall IVT transcripts (<5% false pos-            tome of a species can easily order matching oligos and train
+itives in >97% of the cases). A result of particular note is            ModiDeC on this position or the corresponding motif, and
+that ModiDeC seems to have versatility in identifying motifs            then make it available to the community.
+that differ from those used for training but contain variations             We argue that the ease of extension and customization
+in the sequence (see Supplementary Table S5). This indicates            of ModiDeC by anyone makes it a valuable tool for stud-
+that ModiDeC has potential for identifying features that have           ies on RNA modification in biology and medicine. Also, if
+not been explicitly learned from the training pool and would            combined with models optimized for genome-wide screenings,
+thus also be suitable for use in human data, in which a large           ModiDeC could be a complementary high-precision valida-
+number of genetic variants, such as single nucleotide poly-             tion tool.
+morphisms, must be assumed. We also see ModiDeC as par-
+ticularly suitable for predicting unknown modification sites,
+which can then be experimentally validated. As shown in Fig.            Acknowledgements
+5 and the Supplementary data (Supplementary Fig. S8), in-               Author contributions: Nicolò Alagna (Conceptualization
+stances arose where ModiDeC predicted Gm or inosine that                [equal], Data curation [equal], Formal analysis [lead],
+could not be validated due to a lack of reference data in the           Methodology [lead], Software [lead], Supervision [equal],
+literature, but which due to the experimental setup (high pre-          Writing—original draft [equal], Writing—review & edit-
+dictions frequency for the blood samples, with simultaneous             ing [equal]), Stefan Mündnich (Conceptualization [equal],
+correctly recognized negative IVT) are interesting candidates           Data curation [equal], Investigation [equal], Resources [lead],
+for further studies.                                                    Writing—original draft [equal], Writing—review & editing
+16   Alagna et al.
+
+
+[equal]), Johannes Miedema (Data curation [supporting], For-    and GitHub: https://github.com/mem3nto0/ModiDeC-RNA-
+mal analysis [supporting], Software [supporting], Visualiza-    modification-classifier, where tutorials for retraining and/or
+tion [supporting]), Stefan Pastore (Formal analysis [support-   using ModiDeC are also provided. ModiDeC can also be
+ing], Methodology [supporting], Software [supporting]), Li-     found in the ONT platform Epi2ME with the names “Mo-
+oba Lehmann (Investigation [supporting], Visualization [sup-    diDeC data curation,” “ModiDeC training,” and “ModiDeC
+porting]), Anna Wierczeiko (Data curation [supporting], In-     analysis.”
+vestigation [supporting]), Johannes Friedrich (Data curation
+[supporting], Resources [supporting]), Lukas Walz (Data cu-
+ration [supporting], Resources [supporting]), Marko Jörg        References
+(Data curation [supporting], Resources [supporting]), Tamer
+                                                                 1. Lucas MC, Novoa EM. Long-read sequencing in the era of
+Butto (Data curation [supporting], Resources [supporting],
+                                                                    epigenomics and epitranscriptomics. Nat Methods
+Writing—review & editing [supporting]), Kristina Friedland          2023;20:25–9.https://doi.org/10.1038/s41592- 022- 01724- 8
+(Investigation [supporting], Writing—original draft [support-    2. Roundtree IA, Evans ME, Pan T et al. Dynamic RNA
+ing], Writing—review & editing [supporting]), Mark Helm             modifications in gene expression regulation. Cell
+(Conceptualization [equal], Funding acquisition [equal],            2017;169:1187–200. https://doi.org/10.1016/j.cell.2017.05.045
+
+
+
+
+                                                                                                                                             Downloaded from https://academic.oup.com/nar/article/53/14/gkaf673/8208110 by guest on 19 May 2026
+Project administration [equal], Resources [equal], Supervi-      3. Boccaletto P, Machnicka MA, Purta E et al. MODOMICS: a
+sion [equal], Writing—review & editing [supporting]), and           database of RNA modification pathways. 2017 update. Nucleic
+Susanne Gerber (Conceptualization [equal], Funding acqui-           Acids Res 2018;46:D303–7. https://doi.org/10.1093/nar/gkx1030
+sition [equal], Investigation [supporting], Methodology [sup-    4. Delaunay S, Helm M, Frye M. RNA modifications in physiology
+                                                                    and disease: towards clinical applications. Nat Rev Genet
+porting], Project administration [equal], Resources [equal],
+                                                                    2024;25:104–22. https://doi.org/10.1038/s41576- 023- 00645- 2
+Supervision [equal], Writing—original draft [supporting],
+                                                                 5. McMahon M, Forester C, Buffenstein R. Aging through an
+Writing—review & editing [lead]).                                   epitranscriptomic lens. Nat Aging 2021;1:335–46.
+                                                                    https://doi.org/10.1038/s43587- 021- 00058- y
+                                                                 6. Shi H, Chai P, Jia R et al. Novel insight into the regulatory roles of
+Supplementary data                                                  diverse RNA modifications: re-defining the bridge between
+Supplementary data is available at NAR online.                      transcription and translation. Mol Cancer 2020;19:78.
+                                                                    https://doi.org/10.1186/s12943- 020- 01194- 6
+                                                                 7. Perez MF, Lehner B. Intergenerational and transgenerational
+                                                                    epigenetic inheritance in animals. Nat Cell Biol 2019;21:143–51.
+Conflict of interest                                                https://doi.org/10.1038/s41556- 018- 0242- 9
+None declared.                                                   8. Jonkhout N, Tran J, Smith M et al. The RNA modification
+                                                                    landscape in human disease. RNA 2017;23:1754–69.
+                                                                    https://doi.org/10.1261/rna.063503.117
+Funding                                                          9. Wang X, Lu Z, Gomez A et al. N6 -Methyladenosine-dependent
+                                                                    regulation of messenger RNA stability. Nature 2014;505:117–20.
+This work was partly funded by the Deutsche Forschungsge-           https://doi.org/10.1038/nature12730
+meinschaft (DFG, German Research Foundation; project no.        10. Flamand MN, Meyer KD. m6 A and YTHDF proteins contribute
+439669440 TRR319 RMaP (TP A05/C01/C03) to M.H. and                  to the localization of select neuronal mRNAs. Nucleic Acids Res
+S.M.) and seed funding from TP Z (S.G. and K.F.). N.A.              2022;50:4464–83. https://doi.org/10.1093/nar/gkac251
+and S.G. acknowledge funding from the Forschungsinitia-         11. Jiang X, Liu B, Nie Z et al. The role of m6 A modification in the
+tive Rheinland-Pfalz and the ReALity initiative of the Jo-          biological functions and diseases. Signal Transduct Target Ther
+                                                                    2021;6:74. https://doi.org/10.1038/s41392- 020- 00450- x
+hannes Gutenberg University Mainz. S.G. and L.L. acknowl-
+                                                                12. Helm M, Motorin Y. Detecting RNA modifications in the
+edge funding from the Boehringer Ingelheim Stiftung. S.G. ac-       epitranscriptome: predict and validate. Nat Rev Genet
+knowledges funding from the Forschungsinitiative Rheinland-         2017;18:275–91. https://doi.org/10.1038/nrg.2016.169
+Pfalz and the M3odel initiative of the Johannes Gutenberg       13. Carlile TM, Rojas-Duran MF, Zinshteyn B et al. Pseudouridine
+University Mainz. K.F. acknowledges Mitoscience, Minis-             profiling reveals regulated mRNA pseudouridylation in yeast and
+terium für Wirtschaft, Verkehr, and Landwirtschaft und Wein-        human cells. Nature 2014;515:143–6.
+bau Rlp. Funding to pay the Open Access publication charges         https://doi.org/10.1038/nature13802
+for this article was provided by Household resources. S.G.      14. Gabay O, Shoshan Y, Kopel E et al. Landscape of
+and N.A. acknowledge funding by SFB 1552 Project No.                adenosine-to-inosine RNA recoding across human tissues. Nat
+                                                                    Commun 2022;13:1184.
+465145163 (Sub-Project C03) of the Deutsche Forschungs-
+                                                                    https://doi.org/10.1038/s41467- 022- 28841- 4
+gemeinschaft (DFG).
+                                                                15. Srinivasan S, Torres AG, Ribas de Pouplana L. Inosine in biology
+                                                                    and disease. Genes 2021;12:600.
+                                                                    https://doi.org/10.3390/genes12040600
+Data availability                                               16. Feng Y-J, You X-J, Ding J-H et al. Identification of inosine and
+Training and test data sets for SQK-RNA002 kit, SQK-                2 -O-methylinosine modifications in yeast messenger RNA by
+RNA004 kit, the data sets for the RNA oligos with vari-             liquid chromatography–tandem mass spectrometry analysis. Anal
+                                                                    Chem 2022;94:4747–55.
+able complexity, and HEK293 IVT reads are available at
+                                                                    https://doi.org/10.1021/acs.analchem.1c05292
+the ENA database with the following ID projects: PR-            17. Safra M, Sas-Chen A, Nir R et al. The m1 A landscape on cytosolic
+JEB88778. We also provide the full reference used to an-            and mitochondrial mRNA at single-base resolution. Nature
+alyze the data (see supplementary_File_2_RNA_sequence).             2017;551:251–5. https://doi.org/10.1038/nature24456
+The neural network and the GUI codes for ModiDeC                18. Jörg M, Plehn JE, Kristen M et al. N1 -Methylation of adenosine
+are available at Zenodo (DOI:10.5281/zenodo.15719181)               (m1 A) in ND5 mRNA leads to complex I dysfunction in
+                                                                                                  A multi-RNA modification classifier        17
+
+
+    Alzheimer’s disease. Mol Psychiatry 2024;29:1427–39.                 37. Jenjaroenpun P, Wongsurawat T, Wadley TD et al. Decoding the
+    https://doi.org/10.1038/s41380- 024- 02421- y                            epitranscriptional landscape from native RNA sequences. Nucleic
+19. Hu L, Liu S, Peng Y et al. m6 A RNA modifications are measured           Acids Res 2021;49:e7. https://doi.org/10.1093/nar/gkaa620
+    at single-base resolution across the mammalian transcriptome. Nat    38. Stephenson W, Razaghi R, Busan S et al. Direct detection of RNA
+    Biotechnol 2022;40:1210–9.                                               modifications and structure using single-molecule nanopore
+    https://doi.org/10.1038/s41587- 022- 01243- z                            sequencing. Cell Genomics 2022;2:100097.
+20. Boulias K, Greer EL. Biological roles of adenine methylation in          https://doi.org/10.1016/j.xgen.2022.100097
+    RNA. Nat Rev Genet 2023;24:143–60.                                   39. Begik O, Lucas MC, Pryszcz LP et al. Quantitative profiling of
+    https://doi.org/10.1038/s41576- 022- 00534- 0                            pseudouridylation dynamics in native RNAs with nanopore
+21. Hewel C, Wierczeiko A, Miedema J et al. Direct RNA sequencing            sequencing. Nat Biotechnol 2021;39:1278–91.
+    (RNA004) enables improved transcriptome assessment and                   https://doi.org/10.1038/s41587- 021- 00915- 6
+    tracking of RNA modifications for medical applications. bioRxiv,     40. Nguyen TA, Heng JWJ, Kaewsapsak P et al. Direct identification
+    https://www.biorxiv.org/content/10.1101/2024.07.25.605188v3, 2           of A-to-I editing sites with nanopore native RNA sequencing. Nat
+    January 2025, preprint: not peerreviewed.                                Methods 2022;19:833–44.
+22. Zhang Z, Luo K, Zou Z et al. Genetic analyses support the                https://doi.org/10.1038/s41592- 022- 01513- 3
+    contribution of mRNA N6 -methyladenosine (m6 A) modification         41. Spangenberg J, Mündnich S, Anne B et al. The RMaP challenge of
+
+
+
+
+                                                                                                                                                   Downloaded from https://academic.oup.com/nar/article/53/14/gkaf673/8208110 by guest on 19 May 2026
+    to human disease heritability. Nat Genet 2020;52:939–49.                 predicting RNA modifications by nanopore sequencing. Commun
+    https://doi.org/10.1038/s41588- 020- 0644- z                             Chem 2025;8:115. https://doi.org/10.1038/s42004- 025- 01507- 0
+23. Delaunay S, Frye M. RNA modifications regulating cell fate in        42. Begik O, Mattick JS, Novoa EM. Exploring the epitranscriptome
+    cancer. Nat Cell Biol 2019;21:552–9.                                     by native RNA sequencing. RNA 2022;28:1430–9.
+    https://doi.org/10.1038/s41556- 019- 0319- 0                             https://doi.org/10.1261/rna.079404.122
+24. Suzuki T. The expanding world of tRNA modifications and their        43. Tavakoli S, Nabizadeh M, Makhamreh A et al. Semi-quantitative
+    disease relevance. Nat Rev Mol Cell Biol 2021;22:375–92.                 detection of pseudouridine modifications and type I/II
+    https://doi.org/10.1038/s41580- 021- 00342- 0                            hypermodifications in human mRNAs using direct long-read
+25. Begik O, Lucas MC, Liu H et al. Integrative analyses of the RNA          sequencing. Nat Commun 2023;14:334.
+    modification machinery reveal tissue- and cancer-specific                https://doi.org/10.1038/s41467- 023- 35858- w
+    signatures. Genome Biol 2020;21:97.                                  44. Furlan M, Delgado-Tejedor A, Mulroney L et al. Computational
+    https://doi.org/10.1186/s13059- 020- 02009- z                            methods for RNA modification detection from Nanopore direct
+26. Frye M, Harada BT, Behm M et al. RNA modifications modulate              RNA sequencing data. RNA Biol 2021;18:31–40.
+    gene expression during development. Science 2018;361:1346–9.             https://doi.org/10.1080/15476286.2021.1978215
+    https://doi.org/10.1126/science.aau1646                              45. Pratanwanich PN, Yao F, Chen Y et al. Identification of
+27. Meyer KD, Saletore Y, Zumbo P et al. Comprehensive analysis of           differential RNA modifications from Nanopore direct RNA
+    mRNA methylation reveals enrichment in 3 UTRs and near stop             sequencing with xPore. Nat Biotechnol 2021;39:1394–402.
+    codons. Cell 2012;149:1635–46.                                           https://doi.org/10.1038/s41587- 021- 00949- w
+    https://doi.org/10.1016/j.cell.2012.05.003                           46. Abebe JS, Price AM, Hayer KE et al. DRUMMER—rapid
+28. Koh CWQ, Goh YT, Goh WSS. Atlas of quantitative                          detection of RNA modifications through comparative nanopore
+    single-base-resolution N6 -methyl-adenine methylomes. Nat                sequencing. Bioinformatics 2022;38:3113–5.
+    Commun 2019;10:5636.                                                     https://doi.org/10.1093/bioinformatics/btac274
+    https://doi.org/10.1038/s41467- 019- 13561- z                        47. Hendra C, Pratanwanich PN, Wan YK et al. Detection of m6A
+29. Carlile TM, Rojas-Duran MF, Gilbert WV. Pseudo-seq:                      from direct RNA sequencing using a multiple instance learning
+    genome-wide detection of pseudouridine modifications in RNA.             framework. Nat Methods 2022;19:1590–8.
+    Methods Enzymol 2015;560:219–45.                                         https://doi.org/10.1038/s41592- 022- 01666- 1
+    https://doi.org/10.1016/bs.mie.2015.03.011                           48. Qin H, Ou L, Gao J et al. DENA: training an authentic neural
+30. Linder B, Grozhik AV, Olarerin-George AO et al.                          network model using nanopore sequencing data of Arabidopsis
+    Single-nucleotide-resolution mapping of m6A and m6Am                     transcripts for detection and quantification of N6 -methyladenosine
+    throughout the transcriptome. Nat Methods 2015;12:767–72.                on RNA. Genome Biol 2022;23:25.
+    https://doi.org/10.1038/nmeth.3453                                       https://doi.org/10.1186/s13059- 021- 02598- 3
+31. Liu C, Sun H, Yi Y et al. Absolute quantification of single-base     49. Chan A, Naarmann-de Vries IS, Scheitl CPM et al. Detecting m6 A
+    m6 A methylation in the mammalian transcriptome using GLORI.             at single-molecular resolution via direct RNA sequencing and
+    Nat Biotechnol 2023;41:355–66.                                           realistic training data. Nat Commun 2024;15:3323.
+    https://doi.org/10.1038/s41587- 022- 01487- 9                            https://doi.org/10.1038/s41467- 024- 47661- 2
+32. Anreiter I, Mir Q, Simpson JT et al. New twists in detecting         50. Hassan D, Acevedo D, Daulatabad SV et al. Penguin: a tool for
+    mRNA modification dynamics. Trends Biotechnol 2021;39:72–89.             predicting pseudouridine sites in direct RNA nanopore sequencing
+    https://doi.org/10.1016/j.tibtech.2020.06.002                            data. Methods 2022;203:478–87.
+33. Oberdoeffer S, Gilbert WV. All the sites we cannot see: sources          https://doi.org/10.1016/j.ymeth.2022.02.005
+    and mitigation of false negatives in RNA modification studies. Nat   51. Burdick JT, Comai A, Bruzel A et al. Nanopore-based direct
+    Rev Mol Cell Biol 2025;26:237–48.                                        sequencing of RNA transcripts with 10 different modified
+    https://doi.org/10.1038/s41580- 024- 00784- 2                            nucleotides reveals gaps in existing technology. G3
+34. Jain M, Abu-Shumays R, Olsen HE et al. Advances in Nanopore              2023;13:jkad200. https://doi.org/10.1093/g3journal/jkad200
+    direct RNA sequencing. Nat Methods 2022;19:1160–4.                   52. Acera Mateos P, Sethi A, Ravindran A et al. Prediction of m6A and
+    https://doi.org/10.1038/s41592- 022- 01633- w                            m5C at single-molecule resolution reveals a transcriptome-wide
+35. Wang Y, Zhao Y, Bollas A et al. Nanopore sequencing technology,          co-occurrence of RNA modifications. Nat Commun
+    bioinformatics and applications. Nat Biotechnol                          2024;15:3899. https://doi.org/10.1038/s41467- 024- 47953- 7
+    2021;39:1348–65. https://doi.org/10.1038/s41587- 021- 01108- x       53. Wu Y, Shao W, Yan M et al. Transfer learning enables
+36. Amarasinghe SL, Su S, Dong X et al. Opportunities and challenges         identification of multiple types of RNA modifications using
+    in long-read sequencing data analysis. Genome Biol 2020;21:30.           nanopore direct RNA sequencing. Nat Commun 2024;15:4049.
+    https://doi.org/10.1186/s13059- 020- 1935- 5                             https://doi.org/10.1038/s41467- 024- 48437- 4
+                                                                         54. Lucas MC, Pryszcz LP, Medina R et al. Quantitative analysis of
+                                                                             tRNA abundance and modifications by nanopore RNA
+18      Alagna et al.
+
+
+    sequencing. Nat Biotechnol 2024;42:72–86.                                                        63. Shoemaker R, Huang M-F, Wu Y-S et al. Decoding the molecular
+    https://doi.org/10.1038/s41587- 023- 01743- 6                                                        symphony: interactions between the m6 A and p53 signaling
+55. Milenkovic I, Cruciani S, Llovera L et al. Epitranscriptomic rRNA                                    pathways in cancer. NAR Cancer 2024;6:zcae037.
+    fingerprinting reveals tissue-of-origin and tumor-specific                                           https://doi.org/10.1093/narcan/zcae037
+    signatures. Mol Cell 2025;85:177–90.                                                             64. Hernández Borrero LJ, El-Deiry WS. Tumor suppressor p53:
+    https://doi.org/10.1101/2024.10.03.616461                                                            biology, signaling pathways, and therapeutic targeting. Biochim
+56. Begik O, Diensthuber G, Liu H et al. Nano3P-Seq:                                                     Biophys Acta Rev Cancer 2021;1876:188556.
+    transcriptome-wide analysis of gene expression and tail dynamics                                     https://doi.org/10.1016/j.bbcan.2021.188556
+    using end-capture nanopore cDNA sequencing. Nat Methods                                          65. Wang H, Guo M, Wei H et al. Targeting p53 pathways:
+    2023;20:75–85. https://doi.org/10.1038/s41592- 022- 01714- w                                         mechanisms, structures and advances in therapy. Signal Transduct
+57. Huang S, Wylder AC, Pan T. Simultaneous nanopore profiling of                                        Target Ther 2023;8:92.
+    mRNA m6 A and pseudouridine reveals translation coordination.                                        https://doi.org/10.1038/s41392- 023- 01347- 1
+    Nat Biotechnol 2024;42:1831–5.                                                                   66. Xuan J, Chen L, Chen Z et al. RMBase v3.0: decode the landscape,
+    https://doi.org/10.1038/s41587- 024- 02135- 0                                                        mechanisms and functions of RNA modifications. Nucleic Acids
+58. Schartel L, Jann C, Wierczeiko A et al. Selective RNA                                                Res 2024;52:D273–84. https://doi.org/10.1093/nar/gkad1070
+    pseudouridinylation in situ by circular gRNAs in designer                                        67. Liang Z, Ye H, Ma J et al. m6 A-Atlas v2.0: updated resources for
+
+
+
+
+                                                                                                                                                                                                        Downloaded from https://academic.oup.com/nar/article/53/14/gkaf673/8208110 by guest on 19 May 2026
+    organelles. Nat Commun 2024;15:9177.                                                                 unraveling the N6 -methyladenosine (m6 A) epitranscriptome
+    https://doi.org/10.21203/rs.3.rs-4756705/v1                                                          among multiple species. Nucleic Acids Res 2024;52:D194–202.
+59. Pastore S, Wacheul L, Lehmann L et al. Mapping human pre                                             https://doi.org/10.1093/nar/gkad691
+    rRNA processing and modification at single nucleotide resolution.                                68. Li X, Xiong X, Zhang M et al. Base-resolution mapping reveals
+    bioRxiv, https://doi.org/10.1101/2025.03.01.640970, 28 May                                           distinct m1 A methylome in nuclear- and mitochondrial-encoded
+    2025, preprint: not peer reviewed.                                                                   transcripts. Mol Cell 2017;68:993–1005.
+60. Song Y. mRNA methylation de-mystified. Nat Chem Biol                                                 https://doi.org/10.1016/j.molcel.2017.10.019
+    2023;19:252. https://doi.org/10.1038/s41589- 023- 01290- w                                       69. Lin T-Y, Kleemann L, Jeżowski J et al. The molecular basis of
+61. Samarakoon H, Wan YK, Parameswaran S et al. Leveraging                                               tRNA selectivity by human pseudouridine synthase 3. Mol Cell
+    basecaller’s move table to generate a lightweight k-mer model.                                       2024;84:2472–89. https://doi.org/10.1016/j.molcel.2024.06.013
+    Bioinformatics 2024;41:btaf111.                                                                  70. Maestri S, Furlan M, Mulroney L et al. Benchmarking of
+    https://doi.org/10.1101/2024.06.30.601452                                                            computational methods for m6A profiling with nanopore direct
+62. Taoka M, Nobe Y, Yamaki Y et al. Landscape of the complete                                           RNA sequencing. Brief Bioinform 2024;25:bbae001.
+    RNA chemical modifications in the human 80S ribosome. Nucleic                                        https://doi.org/10.1093/bib/bbae001
+    Acids Res 2018;46:9289–98. https://doi.org/10.1093/nar/gky811
+
+
+
+
+Received: February 19, 2025. Revised: May 23, 2025. Editorial Decision: June 19, 2025. Accepted: July 1, 2025
+© The Author(s) 2025. Published by Oxford University Press on behalf of Nucleic Acids Research.
+This is an Open Access article distributed under the terms of the Creative Commons Attribution-NonCommercial License (https://creativecommons.org/licenses/by-nc/4.0/), which permits
+non-commercial re-use, distribution, and reproduction in any medium, provided the original work is properly cited. For commercial re-use, please contact reprints@oup.com for reprints and
+translation rights for reprints. All other permissions can be obtained through our RightsLink service via the Permissions link on the article page on our site—for further information please contact
+journals.permissions@oup.com.
+
