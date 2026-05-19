@@ -1,27 +1,22 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# Build a MoDiDeC RNA002 m6A Stage 1 control dataset from already-converted POD5.
+# Build a MoDiDeC RNA002 m6A Stage 1 dataset from already-converted POD5.
 #
-# This is intentionally simpler than train_mix_stage1_6motif_dataset.sh:
-#   - input is direct POD5 path(s), not ENA/FAST5/TAR names;
-#   - no external run manifest is required;
-#   - the script writes a small internal MoDiDeC m6A oligo table and per-run
-#     run manifest under $WORK_ROOT/manifests;
-#   - center m6A oligo sites are labeled, all other positions are ignored.
+# MoDiDeC m6A data are handled as one internally labeled construct run:
+#   positive chunks = windows containing an explicitly matched Supplementary
+#                     Table 1 m6A oligo center;
+#   negative chunks = A-containing windows outside matched m6A oligo intervals.
 #
-# Required inputs:
-#   MODIDEC_CANONICAL_POD5_SPECS="unmod:/path/to/unmodified_pod5"
-#   MODIDEC_M6A_POD5_SPECS="m6a:/path/to/m6A_pod5"
+# Required:
+#   MODIDEC_POD5_SPECS="modidec_m6a:/path/to/pod5_dir_or_file.pod5"
 #
-# Multiple inputs are separated by semicolons:
-#   MODIDEC_CANONICAL_POD5_SPECS="unmod1:/pod5/a;unmod2:/pod5/b"
-#   MODIDEC_M6A_POD5_SPECS="m6a1:/pod5/c;m6a2:/pod5/d"
+# Multiple runs are separated by semicolons:
+#   MODIDEC_POD5_SPECS="run1:/pod5/a;run2:/pod5/b"
 #
-# Optional heldout per-run datasets:
-#   MODIDEC_HELDOUT_CANONICAL_POD5_SPECS="heldout_unmod:/path/to/pod5"
-#   MODIDEC_HELDOUT_M6A_POD5_SPECS="heldout_m6a:/path/to/pod5"
-
+# Optional heldout/test pass over the same or different POD5:
+#   MODIDEC_HELDOUT_POD5_SPECS="heldout:/path/to/pod5"
+#   MODIDEC_HELDOUT_OLIGO_IDS="modidec_m6A_11"
 
 REPO="${REPO:-/home/lijy/workspace/TetraMod/}"
 WORK_ROOT="${WORK_ROOT:-/data/biolab-nvme-pcie2/lijy/tetramod_modidec_rna002}"
@@ -42,14 +37,14 @@ MAX_RECORDS="${MAX_RECORDS:--1}"
 MAX_CHUNKS="${MAX_CHUNKS:--1}"
 MIN_OLIGO_IDENTITY="${MIN_OLIGO_IDENTITY:-0.86}"
 MAX_OLIGO_MISMATCHES="${MAX_OLIGO_MISMATCHES:-4}"
+NEGATIVE_CHUNKS_PER_POSITIVE="${NEGATIVE_CHUNKS_PER_POSITIVE:-2}"
+NEGATIVE_EXCLUSION_BASES="${NEGATIVE_EXCLUSION_BASES:-0}"
 
 TRAIN_DATASET_NAME="${TRAIN_DATASET_NAME:-stage1_train_modidec_m6a_rna002}"
 HELDOUT_ROOT_NAME="${HELDOUT_ROOT_NAME:-heldout_modidec_m6a_rna002}"
 
-MODIDEC_CANONICAL_POD5_SPECS="${MODIDEC_CANONICAL_POD5_SPECS:-}"
-MODIDEC_M6A_POD5_SPECS="${MODIDEC_M6A_POD5_SPECS:-}"
-MODIDEC_HELDOUT_CANONICAL_POD5_SPECS="${MODIDEC_HELDOUT_CANONICAL_POD5_SPECS:-}"
-MODIDEC_HELDOUT_M6A_POD5_SPECS="${MODIDEC_HELDOUT_M6A_POD5_SPECS:-}"
+MODIDEC_POD5_SPECS="${MODIDEC_POD5_SPECS:-${MODIDEC_M6A_POD5_SPECS:-}}"
+MODIDEC_HELDOUT_POD5_SPECS="${MODIDEC_HELDOUT_POD5_SPECS:-${MODIDEC_HELDOUT_M6A_POD5_SPECS:-}}"
 MODIDEC_TRAIN_OLIGO_IDS="${MODIDEC_TRAIN_OLIGO_IDS:-}"
 MODIDEC_HELDOUT_OLIGO_IDS="${MODIDEC_HELDOUT_OLIGO_IDS:-}"
 
@@ -92,8 +87,7 @@ sanitize_run_id() {
 
 parse_specs() {
   local specs="$1"
-  local status="$2"
-  local split="$3"
+  local split="$2"
   local raw name path
 
   [[ -n "$specs" ]] || return 0
@@ -110,7 +104,7 @@ parse_specs() {
       name="$(basename "$path")"
     fi
     name="$(sanitize_run_id "$name")"
-    printf '%s\t%s\t%s\t%s\n' "$name" "$status" "$split" "$path"
+    printf '%s\t%s\t%s\n' "$name" "$split" "$path"
   done
 }
 
@@ -149,45 +143,33 @@ oligo_ids_for_split() {
   all_oligo_ids_csv
 }
 
-write_run_manifest() {
-  local run_id="$1"
-  local status="$2"
-  local output="$3"
-  local split="${4:-train}"
-  local oligo_ids
-  oligo_ids="$(oligo_ids_for_split "$split")"
-  [[ -n "$oligo_ids" ]] || fail "No oligo ids found in $OLIGO_MANIFEST"
-  cat > "$output" <<EOF
-run_id	accession	local_name	modification_status	ligation_strategy	split	oligo_ids	modified_oligo_ids
-$run_id	modidec	direct_pod5	$status	splint_ligation	train	$oligo_ids	
-EOF
-}
-
 spec_file() {
   local path="$WORK_ROOT/manifests/pod5_specs.tsv"
   {
-    parse_specs "$MODIDEC_CANONICAL_POD5_SPECS" "unmodified" "train"
-    parse_specs "$MODIDEC_M6A_POD5_SPECS" "modified" "train"
+    parse_specs "$MODIDEC_POD5_SPECS" "train"
     if [[ "$BUILD_HELDOUT" == "1" ]]; then
-      parse_specs "$MODIDEC_HELDOUT_CANONICAL_POD5_SPECS" "unmodified" "heldout"
-      parse_specs "$MODIDEC_HELDOUT_M6A_POD5_SPECS" "modified" "heldout"
+      parse_specs "$MODIDEC_HELDOUT_POD5_SPECS" "heldout"
     fi
   } > "$path"
   printf '%s\n' "$path"
 }
 
-train_run_ids() {
-  awk -F'\t' '$3 == "train" { print $1 }' "$1"
-}
-
-heldout_run_ids() {
-  awk -F'\t' '$3 == "heldout" { print $1 }' "$1"
+run_ids_for_split() {
+  local specs_file="$1"
+  local split="$2"
+  awk -F'\t' -v split="$split" '$2 == split { print $1 }' "$specs_file"
 }
 
 pod5_path_for_run() {
   local specs_file="$1"
   local run_id="$2"
-  awk -F'\t' -v id="$run_id" '$1 == id { print $4 }' "$specs_file"
+  awk -F'\t' -v id="$run_id" '$1 == id { print $3 }' "$specs_file"
+}
+
+split_for_run() {
+  local specs_file="$1"
+  local run_id="$2"
+  awk -F'\t' -v id="$run_id" '$1 == id { print $2 }' "$specs_file"
 }
 
 pod5_input_dir_for_run() {
@@ -219,18 +201,6 @@ pod5_input_dir_for_run() {
   printf '%s\n' "$link_dir"
 }
 
-status_for_run() {
-  local specs_file="$1"
-  local run_id="$2"
-  awk -F'\t' -v id="$run_id" '$1 == id { print $2 }' "$specs_file"
-}
-
-split_for_run() {
-  local specs_file="$1"
-  local run_id="$2"
-  awk -F'\t' -v id="$run_id" '$1 == id { print $3 }' "$specs_file"
-}
-
 basecall_run() {
   local specs_file="$1"
   local run_id="$2"
@@ -255,13 +225,12 @@ build_run_dataset() {
   local specs_file="$1"
   local run_id="$2"
   local output_dir="$3"
-  local pod5_dir bam status split run_manifest
+  local pod5_dir bam split oligo_ids
 
   pod5_dir="$(pod5_input_dir_for_run "$specs_file" "$run_id")"
-  status="$(status_for_run "$specs_file" "$run_id")"
   split="$(split_for_run "$specs_file" "$run_id")"
   bam="$WORK_ROOT/bam/$run_id.bam"
-  run_manifest="$MANIFEST_DIR/${run_id}.runs.tsv"
+  oligo_ids="$(oligo_ids_for_split "$split")"
 
   require_file "$pod5_dir"
   require_file "$bam"
@@ -276,15 +245,13 @@ build_run_dataset() {
     return
   fi
 
-  write_run_manifest "$run_id" "$status" "$run_manifest" "$split"
-
   echo "[dataset] $run_id -> $output_dir"
-  python gen_data/create_mafia_synthetic_stage1_dataset.py \
+  python gen_data/create_modidec_m6a_stage1_dataset.py \
     --bam-file "$bam" \
     --pod5-dir "$pod5_dir" \
     --output-dir "$output_dir" \
     --oligo-manifest "$OLIGO_MANIFEST" \
-    --run-manifest "$run_manifest" \
+    --oligo-ids "$oligo_ids" \
     --run-id "$run_id" \
     --sample-type rna \
     --rna002 \
@@ -294,7 +261,10 @@ build_run_dataset() {
     --max-records "$MAX_RECORDS" \
     --max-chunks "$MAX_CHUNKS" \
     --min-oligo-identity "$MIN_OLIGO_IDENTITY" \
-    --max-oligo-mismatches "$MAX_OLIGO_MISMATCHES"
+    --max-oligo-mismatches "$MAX_OLIGO_MISMATCHES" \
+    --negative-chunks-per-positive "$NEGATIVE_CHUNKS_PER_POSITIVE" \
+    --negative-exclusion-bases "$NEGATIVE_EXCLUSION_BASES" \
+    --seed "$SEED"
 }
 
 merge_train_dataset() {
@@ -304,7 +274,7 @@ merge_train_dataset() {
 
   while IFS= read -r run_id; do
     merge_args+=(--dataset "$run_id:$WORK_ROOT/chunks/per_run/$run_id")
-  done < <(train_run_ids "$specs_file")
+  done < <(run_ids_for_split "$specs_file" train)
 
   [[ "${#merge_args[@]}" -gt 0 ]] || fail "No train POD5 specs were provided."
 
@@ -319,10 +289,10 @@ merge_train_dataset() {
 write_run_lists() {
   local specs_file="$1"
   mkdir -p "$TRAIN_DATASET_DIR"
-  train_run_ids "$specs_file" > "$TRAIN_DATASET_DIR/train_run_ids.txt"
+  run_ids_for_split "$specs_file" train > "$TRAIN_DATASET_DIR/train_run_ids.txt"
   if [[ "$BUILD_HELDOUT" == "1" ]]; then
     mkdir -p "$HELDOUT_DATASET_ROOT"
-    heldout_run_ids "$specs_file" > "$HELDOUT_DATASET_ROOT/heldout_run_ids.txt"
+    run_ids_for_split "$specs_file" heldout > "$HELDOUT_DATASET_ROOT/heldout_run_ids.txt"
   fi
 }
 
@@ -364,10 +334,9 @@ validate_inputs() {
   local specs_file="$1"
   require_executable "$DORADO_BIN"
   require_file "$DORADO_MODEL"
-  [[ -s "$specs_file" ]] || fail "No POD5 specs were provided. Set MODIDEC_CANONICAL_POD5_SPECS and MODIDEC_M6A_POD5_SPECS."
-  [[ -n "$MODIDEC_CANONICAL_POD5_SPECS" ]] || fail "Set MODIDEC_CANONICAL_POD5_SPECS for unmodified/control POD5."
-  [[ -n "$MODIDEC_M6A_POD5_SPECS" ]] || fail "Set MODIDEC_M6A_POD5_SPECS for m6A POD5."
-  while IFS=$'\t' read -r run_id _split _status path; do
+  [[ -n "$MODIDEC_POD5_SPECS" ]] || fail "Set MODIDEC_POD5_SPECS to the MoDiDeC m6A POD5 path(s)."
+  [[ -s "$specs_file" ]] || fail "No POD5 specs were parsed."
+  while IFS=$'\t' read -r run_id _split path; do
     [[ -n "$run_id" ]] || continue
     require_file "$path"
     if [[ -d "$path" ]]; then
@@ -387,6 +356,8 @@ print_config() {
   echo "  DORADO_MODEL=$DORADO_MODEL"
   echo "  DEVICE=$DEVICE"
   echo "  CHUNK_LEN=$CHUNK_LEN OVERLAP=$OVERLAP"
+  echo "  NEGATIVE_CHUNKS_PER_POSITIVE=$NEGATIVE_CHUNKS_PER_POSITIVE"
+  echo "  NEGATIVE_EXCLUSION_BASES=$NEGATIVE_EXCLUSION_BASES"
   echo "  TRAIN_DATASET_DIR=$TRAIN_DATASET_DIR"
   echo "  HELDOUT_DATASET_ROOT=$HELDOUT_DATASET_ROOT"
   echo "  OLIGO_MANIFEST=$OLIGO_MANIFEST"
@@ -404,12 +375,12 @@ run_downstream_stage() {
 
   while IFS= read -r run_id; do
     build_run_dataset "$specs_file" "$run_id" "$WORK_ROOT/chunks/per_run/$run_id"
-  done < <(train_run_ids "$specs_file")
+  done < <(run_ids_for_split "$specs_file" train)
 
   if [[ "$BUILD_HELDOUT" == "1" ]]; then
     while IFS= read -r run_id; do
       build_run_dataset "$specs_file" "$run_id" "$HELDOUT_DATASET_ROOT/$run_id"
-    done < <(heldout_run_ids "$specs_file")
+    done < <(run_ids_for_split "$specs_file" heldout)
   fi
 
   merge_train_dataset "$specs_file"
