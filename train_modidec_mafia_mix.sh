@@ -258,8 +258,8 @@ tetramod train_promote -f "$OUT" \
 	--save-optim-every 5 \
 	--profile-chunks 20000 \
 	--no-compile || {
-		echo "[error] LOMO training failed for MOTIF=$MOTIF. Stop here, recover CUDA, then rerun this block." >&2
-		exit 1
+		echo "[error] LOMO training failed for MOTIF=$MOTIF. Stop here, inspect the error, then rerun this block." >&2
+		break
 	}
 done
 
