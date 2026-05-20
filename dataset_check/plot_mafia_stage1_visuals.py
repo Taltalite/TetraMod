@@ -97,6 +97,13 @@ def motif_order(*frames: pd.DataFrame) -> list[str]:
     return [m for m in DEFAULT_MOTIF_ORDER if m in motifs] + sorted(motifs.difference(DEFAULT_MOTIF_ORDER))
 
 
+def parse_motifs(value: str | None) -> list[str] | None:
+    if value is None or not str(value).strip():
+        return None
+    motifs = [item.strip().upper().replace("U", "T") for item in str(value).split(",") if item.strip()]
+    return motifs or None
+
+
 def load_internal_metrics(internal_eval_dir: Path) -> tuple[dict, pd.DataFrame]:
     with (internal_eval_dir / "summary.json").open("r", encoding="utf-8") as handle:
         summary = json.load(handle)
@@ -711,6 +718,14 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Skip ROC and precision-recall curves from site_predictions.tsv.",
     )
+    parser.add_argument(
+        "--motifs",
+        default=None,
+        help=(
+            "Optional comma-separated motif_context allow-list for plots, e.g. "
+            "AGACT,GAACT,GGACA,GGACC,GGACT,TGACT. Useful for mixed datasets with many internal negative 5-mers."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -732,7 +747,14 @@ def main() -> None:
         heldout_label=args.heldout_label,
         heldout_prefixes=args.heldout_prefix,
     )
-    motifs = motif_order(balance, internal_motifs, heldout_motifs)
+    requested_motifs = parse_motifs(args.motifs)
+    motifs = requested_motifs if requested_motifs is not None else motif_order(balance, internal_motifs, heldout_motifs)
+    if requested_motifs is not None:
+        balance = balance[balance["motif_context"].astype(str).isin(motifs)].copy()
+        internal_motifs = internal_motifs[internal_motifs["motif_context"].astype(str).isin(motifs)].copy()
+        heldout_motifs = heldout_motifs[heldout_motifs["motif_context"].astype(str).isin(motifs)].copy()
+        if "motif_context" in heldout_runs.columns:
+            heldout_runs = heldout_runs[heldout_runs["motif_context"].astype(str).isin(motifs)].copy()
 
     output_dir = args.output_dir.resolve()
     training_figures = plot_training_history(
