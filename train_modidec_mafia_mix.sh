@@ -215,9 +215,11 @@ done
 PRETRAINED=/data/biolab-nvme-pcie2/lijy/bonito_models/rna002_70bps_sup@v3
 CONFIG="$REPO/src/tetramod/models/configs/multihead_transformer_promote_stage1_adamw.toml"
 MODEL_ROOT=/data/biolab-nvme-pcie2/lijy/tetramod_models/lomo_stage1_mafia_6motif_lr1e4_bs64_wd1e2
+LOG_ROOT="$MODEL_ROOT/logs"
 VALID_CHUNKS=4096
 FINAL_EPOCH=10
 DEVICE=cuda:0
+mkdir -p "$LOG_ROOT"
 
 for MOTIF in AGACT GAACT GGACA GGACC GGACT TGACT; do
 case "$MOTIF" in
@@ -232,6 +234,7 @@ esac
 
 DATASET="$LOMO_ROOT/leave_${MOTIF}"
 OUT="$MODEL_ROOT/leave_${MOTIF}"
+LOG="$LOG_ROOT/train_${MOTIF}_$(date +%Y%m%d_%H%M%S).log"
 
 if [[ -s "$OUT/weights_${FINAL_EPOCH}.tar" ]]; then
 	echo "[skip LOMO] MOTIF=$MOTIF already has $OUT/weights_${FINAL_EPOCH}.tar"
@@ -239,6 +242,24 @@ if [[ -s "$OUT/weights_${FINAL_EPOCH}.tar" ]]; then
 fi
 
 echo "[train LOMO] MOTIF=$MOTIF DATASET=$DATASET OUT=$OUT CHUNKS=$CHUNKS VALID_CHUNKS=$VALID_CHUNKS"
+{
+	echo "[train LOMO start]"
+	date
+	echo "HOST=$(hostname)"
+	echo "PWD=$(pwd)"
+	echo "MOTIF=$MOTIF"
+	echo "DATASET=$DATASET"
+	echo "OUT=$OUT"
+	echo "CHUNKS=$CHUNKS"
+	echo "VALID_CHUNKS=$VALID_CHUNKS"
+	echo "FINAL_EPOCH=$FINAL_EPOCH"
+	echo "DEVICE=$DEVICE"
+	echo "PRETRAINED=$PRETRAINED"
+	echo "CONFIG=$CONFIG"
+	echo "[nvidia-smi before]"
+	nvidia-smi || true
+	echo "[command]"
+} | tee "$LOG"
 
 tetramod train_promote -f "$OUT" \
 	--directory "$DATASET" \
@@ -257,10 +278,21 @@ tetramod train_promote -f "$OUT" \
 	--grad-accum-split 1 \
 	--save-optim-every 5 \
 	--profile-chunks 20000 \
-	--no-compile || {
+	--no-compile 2>&1 | tee -a "$LOG"
+STATUS=${PIPESTATUS[0]}
+{
+	echo "[nvidia-smi after]"
+	nvidia-smi || true
+	echo "[train LOMO end]"
+	date
+	echo "STATUS=$STATUS"
+	echo "LOG=$LOG"
+} | tee -a "$LOG"
+if [[ "$STATUS" -ne 0 ]]; then
 		echo "[error] LOMO training failed for MOTIF=$MOTIF. Stop here, inspect the error, then rerun this block." >&2
+		echo "[error] See log: $LOG" >&2
 		break
-	}
+fi
 done
 
 
