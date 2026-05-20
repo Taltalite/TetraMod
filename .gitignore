@@ -33,6 +33,7 @@ env/
 ENV/
 .uv-cache/
 .cache/
+.codex
 
 # Local environment and secrets
 .env
