@@ -105,3 +105,14 @@ python validate/evaluate_mafia_stage1.py "$MODEL" \
 	--output-dir "val_res/stage1_mix_any_a_epoch6_modidec_h11" \
 	--write-sites
 
+
+python dataset_check/plot_mafia_stage1_visuals.py \
+	--motif-balance dataset_check_res/stage1_train_mafia_modidec_m6a/check_reports/motif_balance.tsv \
+	--internal-eval-dir val_res/stage1_mix_any_a_epoch6_internal_valid \
+	--heldout-glob 'val_res/stage1_mix_any_a_epoch6_mafia_heldout_*' \
+	--output-dir val_res/stage1_mix_any_a_epoch6_figures_all_motifs \
+	--training-csv /data/biolab-nvme-pcie2/lijy/tetramod_models/stage1_mafia_modidec_any_a_neg_lr1e4_bs64_wd1e2/training.csv \
+	--internal-label 'Mixed internal validation' \
+	--heldout-label 'mAFiA final heldout' \
+	--heldout-prefix stage1_mix_any_a_epoch6_mafia_heldout_ \
+	--motifs AAACA,AGACA,AGACC,AGACT,GAACC,GAACT,GGACC,GGACA,GGACT,TAACG,TAACT,TGACT
