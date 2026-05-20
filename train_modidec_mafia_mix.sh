@@ -209,11 +209,15 @@ done
 # 这一段可以一次性训练 6 个 leave-one-motif-out 模型。
 # --chunks 按 lomo_datasets_summary.json 中 train.num_samples 向下取 batch=64 的整数倍；
 # --valid-chunks 固定为 4096，减少验证开销。最终结论以后面的 final heldout eval 为准。
+# 如果某个 motif 已有 weights_10.tar，会自动跳过，便于 CUDA 异常或中断后续跑。
+# 如果某个 motif 训练失败，会立刻停止；不要在 CUDA launch failure 后继续提交后续训练。
 
 PRETRAINED=/data/biolab-nvme-pcie2/lijy/bonito_models/rna002_70bps_sup@v3
 CONFIG="$REPO/src/tetramod/models/configs/multihead_transformer_promote_stage1_adamw.toml"
 MODEL_ROOT=/data/biolab-nvme-pcie2/lijy/tetramod_models/lomo_stage1_mafia_6motif_lr1e4_bs64_wd1e2
 VALID_CHUNKS=4096
+FINAL_EPOCH=10
+DEVICE=cuda:0
 
 for MOTIF in AGACT GAACT GGACA GGACC GGACT TGACT; do
 case "$MOTIF" in
@@ -229,17 +233,22 @@ esac
 DATASET="$LOMO_ROOT/leave_${MOTIF}"
 OUT="$MODEL_ROOT/leave_${MOTIF}"
 
+if [[ -s "$OUT/weights_${FINAL_EPOCH}.tar" ]]; then
+	echo "[skip LOMO] MOTIF=$MOTIF already has $OUT/weights_${FINAL_EPOCH}.tar"
+	continue
+fi
+
 echo "[train LOMO] MOTIF=$MOTIF DATASET=$DATASET OUT=$OUT CHUNKS=$CHUNKS VALID_CHUNKS=$VALID_CHUNKS"
 
 tetramod train_promote -f "$OUT" \
 	--directory "$DATASET" \
 	--config "$CONFIG" \
 	--pretrained "$PRETRAINED" \
-	--device cuda:0 \
+	--device "$DEVICE" \
 	--promote-stage control \
 	--promote-base A \
 	--lr 1e-4 \
-	--epochs 10 \
+	--epochs "$FINAL_EPOCH" \
 	--batch 64 \
 	--chunks "$CHUNKS" \
 	--valid-chunks "$VALID_CHUNKS" \
@@ -248,7 +257,10 @@ tetramod train_promote -f "$OUT" \
 	--grad-accum-split 1 \
 	--save-optim-every 5 \
 	--profile-chunks 20000 \
-	--no-compile
+	--no-compile || {
+		echo "[error] LOMO training failed for MOTIF=$MOTIF. Stop here, recover CUDA, then rerun this block." >&2
+		exit 1
+	}
 done
 
 
