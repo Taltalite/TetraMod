@@ -32,17 +32,21 @@ SKIP_EXISTING="${SKIP_EXISTING:-1}"
 RUN_DATASET_CHECK="${RUN_DATASET_CHECK:-1}"
 BUILD_HELDOUT="${BUILD_HELDOUT:-1}"
 MERGE_BALANCE_TRAIN="${MERGE_BALANCE_TRAIN:-0}"
+MERGE_BALANCE_MODE="${MERGE_BALANCE_MODE:-source-class}"
+MERGE_BALANCE_VALIDATION="${MERGE_BALANCE_VALIDATION:-1}"
+SOURCE_CLASS_CAP="${SOURCE_CLASS_CAP:-}"
 MAX_RECORDS="${MAX_RECORDS:--1}"
 MAX_CHUNKS="${MAX_CHUNKS:--1}"
 MIN_OLIGO_IDENTITY="${MIN_OLIGO_IDENTITY:-0.86}"
 MAX_OLIGO_MISMATCHES="${MAX_OLIGO_MISMATCHES:-4}"
 NEGATIVE_CHUNKS_PER_POSITIVE="${NEGATIVE_CHUNKS_PER_POSITIVE:-2}"
 NEGATIVE_EXCLUSION_BASES="${NEGATIVE_EXCLUSION_BASES:-0}"
+NEGATIVE_LABEL_MODE="${NEGATIVE_LABEL_MODE:-center}"
 
 TRAIN_DATASET_NAME="${TRAIN_DATASET_NAME:-stage1_train_modidec_m6a_rna002}"
 HELDOUT_ROOT_NAME="${HELDOUT_ROOT_NAME:-heldout_modidec_m6a_rna002}"
 
-MODIDEC_BAM_SPECS="modidec_train:/data/biolab-nvme-pcie2/lijy/tetramod_modidec_rna002/bam/modidec_train.bam:/data/biolab-nvme-pcie2/lijy/tetramod_modidec_rna002/m6A_pod5"
+MODIDEC_BAM_SPECS="${MODIDEC_BAM_SPECS:-}"
 MODIDEC_HELDOUT_BAM_SPECS="${MODIDEC_HELDOUT_BAM_SPECS:-}"
 MODIDEC_TRAIN_OLIGO_IDS="modidec_m6A_01,modidec_m6A_02,modidec_m6A_03,modidec_m6A_04,modidec_m6A_05,modidec_m6A_06,modidec_m6A_07,modidec_m6A_08,modidec_m6A_09,modidec_m6A_10"
 MODIDEC_HELDOUT_OLIGO_IDS="modidec_m6A_11"
@@ -237,6 +241,7 @@ build_run_dataset() {
     --max-oligo-mismatches "$MAX_OLIGO_MISMATCHES" \
     --negative-chunks-per-positive "$NEGATIVE_CHUNKS_PER_POSITIVE" \
     --negative-exclusion-bases "$NEGATIVE_EXCLUSION_BASES" \
+    --negative-label-mode "$NEGATIVE_LABEL_MODE" \
     --seed "$SEED"
 }
 
@@ -253,8 +258,16 @@ merge_train_dataset() {
 
   echo "[merge train] $TRAIN_DATASET_DIR"
   local balance_args=()
-  if [[ "$MERGE_BALANCE_TRAIN" != "1" ]]; then
+  if [[ -n "$MERGE_BALANCE_MODE" ]]; then
+    balance_args+=(--balance-mode "$MERGE_BALANCE_MODE")
+  elif [[ "$MERGE_BALANCE_TRAIN" != "1" ]]; then
     balance_args+=(--no-balance-train)
+  fi
+  if [[ -n "$SOURCE_CLASS_CAP" ]]; then
+    balance_args+=(--source-class-cap "$SOURCE_CLASS_CAP")
+  fi
+  if [[ "$MERGE_BALANCE_VALIDATION" == "1" ]]; then
+    balance_args+=(--balance-validation)
   fi
 
   python gen_data/merge_mafia_stage1_datasets.py \
@@ -263,6 +276,11 @@ merge_train_dataset() {
     --valid-fraction "$VALID_FRACTION" \
     "${balance_args[@]}" \
     --seed "$SEED"
+
+  if [[ -s "$TRAIN_DATASET_DIR/mafia_stage1_merge_summary.json" ]]; then
+    cp "$TRAIN_DATASET_DIR/mafia_stage1_merge_summary.json" \
+      "$TRAIN_DATASET_DIR/modidec_stage1_merge_summary.json"
+  fi
 }
 
 write_run_lists() {
@@ -324,7 +342,11 @@ print_config() {
   echo "  CHUNK_LEN=$CHUNK_LEN OVERLAP=$OVERLAP"
   echo "  NEGATIVE_CHUNKS_PER_POSITIVE=$NEGATIVE_CHUNKS_PER_POSITIVE"
   echo "  NEGATIVE_EXCLUSION_BASES=$NEGATIVE_EXCLUSION_BASES"
+  echo "  NEGATIVE_LABEL_MODE=$NEGATIVE_LABEL_MODE"
   echo "  MERGE_BALANCE_TRAIN=$MERGE_BALANCE_TRAIN"
+  echo "  MERGE_BALANCE_MODE=$MERGE_BALANCE_MODE"
+  echo "  MERGE_BALANCE_VALIDATION=$MERGE_BALANCE_VALIDATION"
+  echo "  SOURCE_CLASS_CAP=${SOURCE_CLASS_CAP:-<none>}"
   echo "  TRAIN_DATASET_DIR=$TRAIN_DATASET_DIR"
   echo "  HELDOUT_DATASET_ROOT=$HELDOUT_DATASET_ROOT"
   echo "  OLIGO_MANIFEST=$OLIGO_MANIFEST"

@@ -28,6 +28,9 @@ M6A_LABEL = 4
 NEGATIVE_CLASS = 1
 POSITIVE_CLASS = 2
 COPY_BLOCK_SIZE = 2048
+BALANCE_MODE_MOTIF = "motif"
+BALANCE_MODE_NONE = "none"
+BALANCE_MODE_SOURCE_CLASS = "source-class"
 
 
 @dataclass(frozen=True)
@@ -184,13 +187,15 @@ def select_splits(
     specs: Sequence[DatasetSpec],
     *,
     valid_fraction: float,
-    balance_train: bool,
+    balance_mode: str,
+    balance_validation: bool,
+    source_class_cap: int | None,
     rng: np.random.Generator,
     show_progress: bool,
     scan_workers: int,
 ) -> tuple[list[SelectedSample], list[SelectedSample], dict]:
     train_candidates: list[tuple[SelectedSample, str, str]] = []
-    valid_selected: list[SelectedSample] = []
+    valid_candidates: list[tuple[SelectedSample, str, str]] = []
     class_counts = {"positive": 0, "negative": 0}
     strata: dict[tuple, list[tuple[SelectedSample, str, str]]] = {}
 
@@ -260,14 +265,59 @@ def select_splits(
         valid_count = int(round(len(items) * valid_fraction))
         if valid_fraction > 0 and len(items) > 1:
             valid_count = min(max(valid_count, 1), len(items) - 1)
-        valid_selected.extend(item[0] for item in items[:valid_count])
+        valid_candidates.extend(items[:valid_count])
         train_candidates.extend(items[valid_count:])
 
-    if balance_train:
+    def balance_source_class(
+        candidates: Sequence[tuple[SelectedSample, str, str]],
+        cap: int | None,
+    ) -> tuple[list[SelectedSample], dict[str, object]]:
+        by_source_class: dict[tuple[int, str], list[SelectedSample]] = {}
+        for sample, cls, _motif in candidates:
+            by_source_class.setdefault((sample.dataset_idx, cls), []).append(sample)
+
+        required_groups = []
+        for dataset_idx, _dataset in enumerate(datasets):
+            for cls in ("positive", "negative"):
+                key = (dataset_idx, cls)
+                if key in by_source_class:
+                    required_groups.append(key)
+
+        if not required_groups:
+            return [], {"source_class_group_counts": {}, "source_class_selected_per_group": {}}
+
+        group_sizes = {key: len(by_source_class[key]) for key in required_groups}
+        keep = min(group_sizes.values())
+        if cap is not None:
+            keep = min(keep, int(cap))
+        selected: list[SelectedSample] = []
+        if keep > 0:
+            for key in required_groups:
+                samples = list(by_source_class[key])
+                rng.shuffle(samples)
+                selected.extend(samples[:keep])
+        details = {
+            "source_class_cap": None if cap is None else int(cap),
+            "source_class_keep_per_group": int(keep),
+            "source_class_group_counts": {
+                f"{datasets[dataset_idx].name}:{cls}": int(count)
+                for (dataset_idx, cls), count in sorted(group_sizes.items())
+            },
+            "source_class_selected_per_group": {
+                f"{datasets[dataset_idx].name}:{cls}": int(keep)
+                for dataset_idx, cls in sorted(required_groups)
+            },
+        }
+        return selected, details
+
+    balance_details: dict[str, object] = {}
+    if balance_mode == BALANCE_MODE_MOTIF:
         by_motif_class: dict[tuple[str, str], list[SelectedSample]] = {}
         for sample, cls, motif in train_candidates:
             by_motif_class.setdefault((motif, cls), []).append(sample)
         train_selected = []
+        motif_counts = {}
+        motif_selected = {}
         motifs = sorted({motif for motif, _ in by_motif_class})
         motif_items = tqdm(
             motifs,
@@ -280,6 +330,7 @@ def select_splits(
         for motif in motif_items:
             positives = list(by_motif_class.get((motif, "positive"), []))
             negatives = list(by_motif_class.get((motif, "negative"), []))
+            motif_counts[motif] = {"positive": len(positives), "negative": len(negatives)}
             if not positives or not negatives:
                 continue
             keep = min(len(positives), len(negatives))
@@ -287,8 +338,28 @@ def select_splits(
             rng.shuffle(negatives)
             train_selected.extend(positives[:keep])
             train_selected.extend(negatives[:keep])
-    else:
+            motif_selected[motif] = {"positive": keep, "negative": keep}
+        balance_details = {
+            "motif_group_counts": motif_counts,
+            "motif_selected_per_group": motif_selected,
+        }
+    elif balance_mode == BALANCE_MODE_SOURCE_CLASS:
+        train_selected, balance_details = balance_source_class(train_candidates, source_class_cap)
+    elif balance_mode == BALANCE_MODE_NONE:
         train_selected = [sample for sample, _, _ in train_candidates]
+    else:
+        raise ValueError(f"Unsupported balance mode: {balance_mode}")
+
+    validation_balance_details: dict[str, object] = {}
+    if balance_validation:
+        if balance_mode != BALANCE_MODE_SOURCE_CLASS:
+            raise ValueError("--balance-validation currently requires --balance-mode source-class")
+        valid_selected, validation_balance_details = balance_source_class(valid_candidates, None)
+        validation_balance_details = {
+            f"validation_{key}": value for key, value in validation_balance_details.items()
+        }
+    else:
+        valid_selected = [sample for sample, _, _ in valid_candidates]
 
     rng.shuffle(train_selected)
     rng.shuffle(valid_selected)
@@ -297,9 +368,13 @@ def select_splits(
         "num_strata": int(len(strata)),
         "train_selected": int(len(train_selected)),
         "validation_selected": int(len(valid_selected)),
-        "balance_train": bool(balance_train),
+        "balance_train": bool(balance_mode == BALANCE_MODE_MOTIF),
+        "balance_mode": str(balance_mode),
+        "balance_validation": bool(balance_validation),
         "valid_fraction": float(valid_fraction),
     }
+    summary.update(balance_details)
+    summary.update(validation_balance_details)
     return train_selected, valid_selected, summary
 
 
@@ -399,6 +474,27 @@ def parse_args():
     parser.add_argument("--valid-fraction", type=float, default=0.25)
     parser.add_argument("--no-balance-train", dest="balance_train", action="store_false")
     parser.set_defaults(balance_train=True)
+    parser.add_argument(
+        "--balance-mode",
+        choices=[BALANCE_MODE_MOTIF, BALANCE_MODE_NONE, BALANCE_MODE_SOURCE_CLASS],
+        default=None,
+        help=(
+            "Training balance strategy. Default preserves legacy behavior: motif unless "
+            "--no-balance-train is set, otherwise none. source-class balances each "
+            "input dataset's positive and negative samples for mixed Stage 1 datasets."
+        ),
+    )
+    parser.add_argument(
+        "--source-class-cap",
+        type=int,
+        default=None,
+        help="Optional maximum samples kept per source/class group when --balance-mode source-class is used.",
+    )
+    parser.add_argument(
+        "--balance-validation",
+        action="store_true",
+        help="Also balance validation source/class groups. Requires --balance-mode source-class.",
+    )
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--no-progress", action="store_true", help="Disable progress bars and progress messages.")
     parser.add_argument(
@@ -414,9 +510,14 @@ def main():
     args = parse_args()
     if args.valid_fraction < 0 or args.valid_fraction >= 1:
         raise ValueError("--valid-fraction must be in [0, 1)")
+    if args.source_class_cap is not None and args.source_class_cap <= 0:
+        raise ValueError("--source-class-cap must be positive when provided")
     show_progress = not bool(args.no_progress)
     rng = np.random.default_rng(args.seed)
     specs = [parse_dataset_spec(text) for text in args.dataset]
+    balance_mode = args.balance_mode
+    if balance_mode is None:
+        balance_mode = BALANCE_MODE_MOTIF if bool(args.balance_train) else BALANCE_MODE_NONE
     scan_workers = int(args.scan_workers)
     if scan_workers <= 0:
         scan_workers = min(len(specs), os.cpu_count() or 1)
@@ -442,7 +543,9 @@ def main():
         datasets,
         specs,
         valid_fraction=float(args.valid_fraction),
-        balance_train=bool(args.balance_train),
+        balance_mode=str(balance_mode),
+        balance_validation=bool(args.balance_validation),
+        source_class_cap=args.source_class_cap,
         rng=rng,
         show_progress=show_progress,
         scan_workers=scan_workers,
@@ -454,7 +557,8 @@ def main():
             f"strata={selection_summary['num_strata']} "
             f"train={selection_summary['train_selected']} "
             f"validation={selection_summary['validation_selected']} "
-            f"balance_train={selection_summary['balance_train']}"
+            f"balance_mode={selection_summary['balance_mode']} "
+            f"balance_validation={selection_summary['balance_validation']}"
         )
         print("[3/4] Writing train split...")
     train_summary = write_split(args.output_dir, datasets, train_selected, "train", show_progress=show_progress)

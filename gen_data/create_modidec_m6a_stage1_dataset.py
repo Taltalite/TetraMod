@@ -9,7 +9,7 @@ builder therefore treats each read as an internal-label source:
 - chunks containing a matched m6A oligo center are positive, with only that
   explicit center A labeled as m6A;
 - chunks that do not overlap any matched m6A oligo interval are negative, with
-  A sites in the chunk labeled canonical_A;
+  one representative A in the chunk labeled canonical_A by default;
 - all other chunks are ignored.
 
 Input BAM must be Dorado RNA002 basecalls with --emit-moves.
@@ -44,6 +44,8 @@ except ImportError:  # pragma: no cover - package-style execution fallback.
 
 DEFAULT_NEGATIVE_CHUNKS_PER_POSITIVE = 2
 DEFAULT_NEGATIVE_EXCLUSION_BASES = 0
+NEGATIVE_LABEL_MODE_CENTER = "center"
+NEGATIVE_LABEL_MODE_ALL_A = "all-a"
 
 
 def interval_overlaps_any(start: int, end: int, intervals: Sequence[tuple[int, int]]) -> bool:
@@ -91,6 +93,7 @@ def sample_from_window(
     label_all_a_canonical: bool,
     metadata_kmer: int,
     max_label_len: int | None,
+    negative_label_mode: str,
 ) -> mafia.MafiaSample | None:
     left_idx = int(np.searchsorted(emitted_positions, win_start, side="left"))
     right_idx = int(np.searchsorted(emitted_positions, win_end, side="left"))
@@ -112,8 +115,13 @@ def sample_from_window(
         a_indices = np.flatnonzero(target == ctc.BASE_TO_INT["A"]).astype(np.int64)
         if a_indices.size == 0:
             return None
-        mod_target[a_indices] = mafia.CANONICAL_A_LABEL
         primary_idx = int(a_indices[np.argmin(np.abs(a_indices - ((target.shape[0] - 1) / 2.0)))])
+        if negative_label_mode == NEGATIVE_LABEL_MODE_ALL_A:
+            mod_target[a_indices] = mafia.CANONICAL_A_LABEL
+            negative_count = int(a_indices.size)
+        else:
+            mod_target[primary_idx] = mafia.CANONICAL_A_LABEL
+            negative_count = 1
         site_key = f"modidec_unmodified:{primary_idx}:1:A"
         site_pos = primary_idx
         kmer_context = ctc.centered_kmer(target_seq, primary_idx, metadata_kmer)
@@ -122,7 +130,6 @@ def sample_from_window(
         oligo_motifs = motif_context
         oligo_orientations = "."
         positive_count = 0
-        negative_count = int(a_indices.size)
     else:
         for unit in units:
             local_idx = int(unit.center_index - left_idx)
@@ -318,6 +325,7 @@ def build_samples_for_task(
             label_all_a_canonical=False,
             metadata_kmer=settings.metadata_kmer,
             max_label_len=settings.max_label_len,
+            negative_label_mode=str(args.negative_label_mode),
         )
         if sample is None:
             stats["chunks_no_label"] += 1
@@ -352,6 +360,7 @@ def build_samples_for_task(
             label_all_a_canonical=True,
             metadata_kmer=settings.metadata_kmer,
             max_label_len=settings.max_label_len,
+            negative_label_mode=str(args.negative_label_mode),
         )
         if sample is None:
             stats["chunks_no_label"] += 1
@@ -396,7 +405,11 @@ def write_summary(output_dir: Path, args, oligos: Sequence[mafia.OligoSpec], cou
         "builder": "modidec_m6a_internal_stage1",
         "label_strategy": {
             "positive": "matched MoDiDeC m6A oligo center A only",
-            "negative": "A sites in chunks outside matched m6A oligo intervals",
+            "negative": (
+                "representative canonical A in chunks outside matched m6A oligo intervals"
+                if str(args.negative_label_mode) == NEGATIVE_LABEL_MODE_CENTER
+                else "all A sites in chunks outside matched m6A oligo intervals"
+            ),
         },
         "bam_file": str(Path(args.bam_file).resolve()),
         "pod5_dir": str(Path(args.pod5_dir).resolve()),
@@ -408,6 +421,7 @@ def write_summary(output_dir: Path, args, oligos: Sequence[mafia.OligoSpec], cou
         "overlap": int(args.overlap),
         "negative_chunks_per_positive": int(args.negative_chunks_per_positive),
         "negative_exclusion_bases": int(args.negative_exclusion_bases),
+        "negative_label_mode": str(args.negative_label_mode),
         "min_oligo_identity": float(args.min_oligo_identity),
         "max_oligo_mismatches": int(args.max_oligo_mismatches),
         "allow_reverse_match": bool(args.allow_reverse_match),
@@ -452,6 +466,16 @@ def parse_args(argv=None):
     parser.add_argument("--no-reverse-match", dest="allow_reverse_match", action="store_false")
     parser.add_argument("--negative-chunks-per-positive", type=int, default=DEFAULT_NEGATIVE_CHUNKS_PER_POSITIVE)
     parser.add_argument("--negative-exclusion-bases", type=int, default=DEFAULT_NEGATIVE_EXCLUSION_BASES)
+    parser.add_argument(
+        "--negative-label-mode",
+        choices=[NEGATIVE_LABEL_MODE_CENTER, NEGATIVE_LABEL_MODE_ALL_A],
+        default=NEGATIVE_LABEL_MODE_CENTER,
+        help=(
+            "How to label internal negative chunks. 'center' labels one representative canonical A "
+            "per chunk, matching mAFiA center-site supervision more closely. 'all-a' labels every A "
+            "in the chunk as canonical_A."
+        ),
+    )
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--task-batch-size", type=int, default=mafia.DEFAULT_TASK_BATCH_SIZE)
     parser.add_argument("--max-pending-batches", type=int, default=mafia.DEFAULT_MAX_PENDING_BATCHES)
