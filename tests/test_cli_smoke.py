@@ -828,6 +828,134 @@ class TetramodCliSmokeTest(unittest.TestCase):
             self.assertTrue((output / "ratio_summary.tsv").exists())
             self.assertTrue((output / "category_distance.tsv").exists())
 
+    def test_mafia_lomo_dataset_builder_filters_heldout_motif(self):
+        import json
+        import subprocess
+        import sys
+        import tempfile
+
+        import numpy as np
+
+        def write_split(directory):
+            directory.mkdir(parents=True)
+            n = 8
+            motifs = np.asarray(["AGACT"] * 4 + ["GAACT"] * 4, dtype=str)
+            np.save(directory / "chunks.npy", np.ones((n, 8), dtype=np.float16))
+            np.save(directory / "references.npy", np.asarray([[1, 2, 1]] * n, dtype=np.uint8))
+            np.save(directory / "reference_lengths.npy", np.full((n,), 3, dtype=np.uint16))
+            mod_targets = np.full((n, 3), -100, dtype=np.int16)
+            mod_targets[:2, 1] = 4
+            mod_targets[2:4, 1] = 0
+            mod_targets[4:6, 1] = 4
+            mod_targets[6:, 1] = 0
+            np.save(directory / "mod_targets.npy", mod_targets)
+            np.savez(
+                directory / "metadata.npz",
+                record_id=np.asarray([f"read_{idx}" for idx in range(n)], dtype=str),
+                pod5_read_id=np.asarray([f"pod5_{idx}" for idx in range(n)], dtype=str),
+                run_id=np.asarray(["run1"] * n, dtype=str),
+                motif_context=motifs,
+                kmer_context=motifs,
+                modification_status=np.asarray(["modified", "modified", "unmodified", "unmodified"] * 2, dtype=str),
+            )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            dataset = root / "dataset"
+            output = root / "lomo"
+            write_split(dataset)
+            write_split(dataset / "validation")
+
+            subprocess.run(
+                [
+                    sys.executable,
+                    "gen_data/create_mafia_lomo_datasets.py",
+                    str(dataset),
+                    "--output-root",
+                    str(output),
+                    "--motifs",
+                    "AGACT,GAACT",
+                    "--validation-mode",
+                    "train-motifs",
+                ],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+
+            leave_agact = output / "leave_AGACT"
+            train_meta = np.load(leave_agact / "metadata.npz")
+            valid_meta = np.load(leave_agact / "validation" / "metadata.npz")
+            self.assertEqual(set(train_meta["motif_context"].astype(str)), {"GAACT"})
+            self.assertEqual(set(valid_meta["motif_context"].astype(str)), {"GAACT"})
+            self.assertEqual(np.load(leave_agact / "chunks.npy").shape[0], 4)
+            summary = json.loads((output / "lomo_datasets_summary.json").read_text(encoding="utf-8"))
+            self.assertEqual(summary["datasets"][0]["heldout_motif"], "AGACT")
+
+    def test_mafia_lomo_benchmark_aggregates_site_predictions(self):
+        import csv
+        import json
+        import subprocess
+        import sys
+        import tempfile
+
+        def write_sites(path, rows):
+            path.mkdir(parents=True)
+            with (path / "site_predictions.tsv").open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(
+                    handle,
+                    fieldnames=("sample_index", "target", "prob_m6a", "motif_context"),
+                    delimiter="\t",
+                )
+                writer.writeheader()
+                writer.writerows(rows)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            eval_root = root / "eval"
+            output = root / "summary"
+            write_sites(
+                eval_root / "leave_AGACT" / "heldout_pos",
+                [
+                    {"sample_index": 0, "target": 1, "prob_m6a": 0.9, "motif_context": "AGACT"},
+                    {"sample_index": 1, "target": 1, "prob_m6a": 0.8, "motif_context": "AGACT"},
+                    {"sample_index": 2, "target": 1, "prob_m6a": 0.7, "motif_context": "GAACT"},
+                ],
+            )
+            write_sites(
+                eval_root / "leave_AGACT" / "heldout_neg",
+                [
+                    {"sample_index": 3, "target": 0, "prob_m6a": 0.1, "motif_context": "AGACT"},
+                    {"sample_index": 4, "target": 0, "prob_m6a": 0.2, "motif_context": "AGACT"},
+                ],
+            )
+
+            subprocess.run(
+                [
+                    sys.executable,
+                    "validate/run_mafia_lomo_benchmark.py",
+                    "--eval-root",
+                    str(eval_root),
+                    "--output-dir",
+                    str(output),
+                    "--motifs",
+                    "AGACT",
+                ],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+
+            summary = json.loads((output / "lomo_summary.json").read_text(encoding="utf-8"))
+            row = summary["rows"][0]
+            self.assertEqual(row["num_sites"], 4)
+            self.assertEqual(row["num_positive"], 2)
+            self.assertEqual(row["num_negative"], 2)
+            self.assertEqual(row["roc_auc"], 1.0)
+            self.assertTrue((output / "lomo_summary.tsv").exists())
+
     def test_create_dataset_rna002_resolves_model_config_normalisation(self):
         import tempfile
 

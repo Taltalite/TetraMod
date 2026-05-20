@@ -119,13 +119,15 @@ python dataset_check/plot_mafia_stage1_visuals.py \
 
 
 
-# 7. New-logic MoDiDeC dataset
+# 7. Finish new-logic MoDiDeC train dataset after heldout #11 produced no chunks
 
-# 新逻辑只改变 MoDiDeC internal negative 的截取方式：
-#   NEGATIVE_LABEL_MODE=center
-#   NEGATIVE_MOTIF_MODE=positive-motifs
-# negative 仍来自非 matched m6A oligo 区域，但只保留 centered 5-mer 属于 MoDiDeC m6A positive motif set 的 A 位点。
-# 注意这里使用新的 WORK_ROOT 和 TRAIN_DATASET_NAME，避免覆盖旧逻辑数据集。
+# 实际运行情况：
+#   modidec_train 已成功写出 per-run dataset，例如 22060 chunks。
+#   modidec_h11 在同一个 BAM/POD5 中没有匹配到 modidec_m6A_11，heldout 构建失败：
+#       No valid mAFiA synthetic samples remained after filtering.
+# 这不影响 mAFiA LOMO benchmark。先跳过 MoDiDeC #11 heldout，只完成 MoDiDeC train/validation merge。
+#
+# 注意：这个文件是命令清单，不是直接执行的 pipeline。按你的实际路径逐段运行。
 
 REPO=/home/lijy/workspace/TetraMod
 MODIDEC_BAM=/data/biolab-nvme-pcie2/lijy/tetramod_modidec_rna002/bam/modidec_train.bam
@@ -137,23 +139,25 @@ REPO="$REPO" \
 WORK_ROOT=/data/biolab-nvme-pcie2/lijy/tetramod_modidec_rna002_motifneg \
 TRAIN_DATASET_NAME=stage1_train_modidec_m6a_rna002_positive_motif_neg \
 HELDOUT_ROOT_NAME=heldout_modidec_m6a_rna002_positive_motif_neg \
-BUILD_HELDOUT=1 \
-SKIP_EXISTING=0 \
+BUILD_HELDOUT=0 \
+SKIP_EXISTING=1 \
 RUN_DATASET_CHECK=1 \
 NEGATIVE_LABEL_MODE=center \
 NEGATIVE_MOTIF_MODE=positive-motifs \
 MERGE_BALANCE_MODE=source-class \
 MERGE_BALANCE_VALIDATION=1 \
 MODIDEC_BAM_SPECS="modidec_train:$MODIDEC_BAM:$MODIDEC_POD5" \
-MODIDEC_HELDOUT_BAM_SPECS="modidec_h11:$MODIDEC_BAM:$MODIDEC_POD5" \
 bash ./train_modidec_m6a_stage1_dataset.sh
 
 
-# 8. New-logic mixed dataset
+# 8. Optional new-logic mAFiA + MoDiDeC mixed dataset, for comparison only
 
-MAFIA_DIR="/data/biolab-nvme-pcie2/lijy/tetramod_mafia_rna002/chunks/stage1_train_mafia_6motif_wue_batch2_rlmix1_4"
-MODIDEC_DIR="/data/biolab-nvme-pcie2/lijy/tetramod_modidec_rna002_motifneg/chunks/stage1_train_modidec_m6a_rna002_positive_motif_neg"
-MIX_DIR="/data/biolab-nvme-pcie2/lijy/tetramod_mix_rna002_motifneg/chunks/stage1_train_mafia_modidec_m6a_positive_motif_neg"
+# 这一步不是 LOMO 的前置条件。它用于比较 new-logic MoDiDeC mixing 是否改善普通 heldout。
+# 当前 source-class merge 会把各 source/class 组下采样到同一数量；不要把它当作最终泛化策略。
+
+MAFIA_DIR=/data/biolab-nvme-pcie2/lijy/tetramod_mafia_rna002/chunks/stage1_train_mafia_6motif_wue_batch2_rlmix1_4
+MODIDEC_DIR=/data/biolab-nvme-pcie2/lijy/tetramod_modidec_rna002_motifneg/chunks/stage1_train_modidec_m6a_rna002_positive_motif_neg
+MIX_DIR=/data/biolab-nvme-pcie2/lijy/tetramod_mix_rna002_motifneg/chunks/stage1_train_mafia_modidec_m6a_positive_motif_neg
 
 python gen_data/merge_mafia_stage1_datasets.py \
 	--dataset "mafia:$MAFIA_DIR" \
@@ -164,38 +168,64 @@ python gen_data/merge_mafia_stage1_datasets.py \
 	--balance-validation \
 	--seed 114514
 
-
-# 9. New-logic mixed dataset QC
-
 python dataset_check/check_mafia_stage1_dataset.py \
 	"$MIX_DIR" \
-	--output-dir /home/lijy/workspace/TetraMod/dataset_check_res/stage1_train_mafia_modidec_m6a_positive_motif_neg
-
-
-# 10. Check new-logic dataset size before training
-
-# 训练前先查看 summary，并把 --chunks 设置为 train.num_samples 向下取 batch=64 的整数倍；
-# --valid-chunks 可以直接使用 validation.num_samples。
+	--output-dir "$REPO/dataset_check_res/stage1_train_mafia_modidec_m6a_positive_motif_neg/check_reports"
 
 cat "$MIX_DIR/mafia_stage1_merge_summary.json"
 
-# 例如如果 summary 显示：
-#   train.num_samples = 37212
-#   validation.num_samples = 4152
-# 则使用：
-#   --chunks 37184
-#   --valid-chunks 4152
+
+# 9. Build mAFiA-only LOMO datasets
+
+# LOMO 是当前 Stage 1 泛化主线：
+#   train on 5 mAFiA motifs
+#   test on the held-out motif using final heldout runs
+# 默认 validation 也排除 held-out motif，避免模型选择阶段看到 held-out motif。
+
+MAFIA_DIR=/data/biolab-nvme-pcie2/lijy/tetramod_mafia_rna002/chunks/stage1_train_mafia_6motif_wue_batch2_rlmix1_4
+LOMO_ROOT=/data/biolab-nvme-pcie2/lijy/tetramod_mafia_rna002/chunks/lomo_stage1_6motif
+LOMO_MOTIFS=AGACT,GAACT,GGACA,GGACC,GGACT,TGACT
+
+python gen_data/create_mafia_lomo_datasets.py "$MAFIA_DIR" \
+	--output-root "$LOMO_ROOT" \
+	--motifs "$LOMO_MOTIFS" \
+	--validation-mode train-motifs \
+	--force
+
+cat "$LOMO_ROOT/lomo_datasets_summary.json"
 
 
-# 11. New-logic train_promote
+# 10. LOMO dataset QC
+
+for MOTIF in AGACT GAACT GGACA GGACC GGACT TGACT; do
+python dataset_check/check_mafia_stage1_dataset.py \
+	"$LOMO_ROOT/leave_${MOTIF}" \
+	--output-dir "$REPO/dataset_check_res/lomo_stage1_6motif/leave_${MOTIF}/check_reports"
+done
+
+
+# 11. Train six mAFiA-only LOMO Stage 1 models
+
+# 训练前对每个 leave_${MOTIF} 查看 lomo_datasets_summary.json 或实际数组大小。
+# --chunks 应设置为 train.num_samples 向下取 batch=64 的整数倍；
+# --valid-chunks 使用 validation.num_samples，或同样取 batch 整数倍以保持日志整齐。
 
 PRETRAINED=/data/biolab-nvme-pcie2/lijy/bonito_models/rna002_70bps_sup@v3
-DATASET=/data/biolab-nvme-pcie2/lijy/tetramod_mix_rna002_motifneg/chunks/stage1_train_mafia_modidec_m6a_positive_motif_neg
-OUT=/data/biolab-nvme-pcie2/lijy/tetramod_models/stage1_mafia_modidec_positive_motif_neg_lr1e4_bs64_wd1e2
+CONFIG="$REPO/src/tetramod/models/configs/multihead_transformer_promote_stage1_adamw.toml"
+MODEL_ROOT=/data/biolab-nvme-pcie2/lijy/tetramod_models/lomo_stage1_mafia_6motif_lr1e4_bs64_wd1e2
+
+# 示例：先为每个 motif 手动填入 CHUNKS/VALID_CHUNKS 后运行。
+# 如果六个 LOMO 子集大小接近，也可以共用同一组 chunks，但不要盲目沿用旧的 37184/4152。
+
+MOTIF=GAACT
+DATASET="$LOMO_ROOT/leave_${MOTIF}"
+OUT="$MODEL_ROOT/leave_${MOTIF}"
+CHUNKS=SET_TRAIN_CHUNKS_ROUNDED_DOWN_TO_BATCH64
+VALID_CHUNKS=SET_VALIDATION_CHUNKS
 
 tetramod train_promote -f "$OUT" \
 	--directory "$DATASET" \
-	--config "/home/lijy/workspace/TetraMod/src/tetramod/models/configs/multihead_transformer_promote_stage1_adamw.toml" \
+	--config "$CONFIG" \
 	--pretrained "$PRETRAINED" \
 	--device cuda:0 \
 	--promote-stage control \
@@ -203,8 +233,8 @@ tetramod train_promote -f "$OUT" \
 	--lr 1e-4 \
 	--epochs 20 \
 	--batch 64 \
-	--chunks 37184 \
-	--valid-chunks 4152 \
+	--chunks "$CHUNKS" \
+	--valid-chunks "$VALID_CHUNKS" \
 	--num-workers 8 \
 	--seed 114514 \
 	--grad-accum-split 1 \
@@ -212,70 +242,91 @@ tetramod train_promote -f "$OUT" \
 	--profile-chunks 20000 \
 	--no-compile
 
-
-# 12. New-logic internal validation
-
-REPO=/home/lijy/workspace/TetraMod
-MODEL=/data/biolab-nvme-pcie2/lijy/tetramod_models/stage1_mafia_modidec_positive_motif_neg_lr1e4_bs64_wd1e2
-DATASET=/data/biolab-nvme-pcie2/lijy/tetramod_mix_rna002_motifneg/chunks/stage1_train_mafia_modidec_m6a_positive_motif_neg
-
-cd "$REPO"
-
-for E in 5 6 7; do
-python validate/evaluate_mafia_stage1.py "$MODEL" \
-	--dataset-dir "$DATASET" \
-	--split validation \
-	--weights "$E" \
-	--device cuda:0 \
-	--batchsize 64 \
-	--num-workers 8 \
-	--output-dir "$REPO/val_res/stage1_mix_positive_motif_neg_epoch${E}_internal_valid" \
-	--write-sites
-done
+# 其余 motif 重复上面的块：
+#   MOTIF=AGACT
+#   MOTIF=GGACA
+#   MOTIF=GGACC
+#   MOTIF=GGACT
+#   MOTIF=TGACT
 
 
-# 13. New-logic mAFiA heldout validation
+# 12. Evaluate each LOMO model on mAFiA final heldout runs
+
+# per-run heldout dataset 没有 validation/ 子目录，所以使用 --split train。
+# 必须加 --write-sites；后面的 LOMO 汇总器用 site_predictions.tsv 计算跨 run ROC/PR AUC。
 
 MAFIA_HELDOUT_ROOT=/data/biolab-nvme-pcie2/lijy/tetramod_mafia_rna002/chunks/final_heldout_mix_1_4
+LOMO_EVAL_ROOT="$REPO/val_res/lomo_stage1_mafia_6motif"
+WEIGHTS=6
 
+for MOTIF in AGACT GAACT GGACA GGACC GGACT TGACT; do
+MODEL="$MODEL_ROOT/leave_${MOTIF}"
 for D in "$MAFIA_HELDOUT_ROOT"/*; do
 NAME=$(basename "$D")
 python validate/evaluate_mafia_stage1.py "$MODEL" \
+	--dataset-dir "$D" \
+	--split train \
+	--weights "$WEIGHTS" \
+	--device cuda:0 \
+	--batchsize 64 \
+	--num-workers 8 \
+	--output-dir "$LOMO_EVAL_ROOT/leave_${MOTIF}/heldout_${NAME}" \
+	--write-sites
+done
+done
+
+
+# 13. Aggregate LOMO benchmark
+
+python validate/run_mafia_lomo_benchmark.py \
+	--eval-root "$LOMO_EVAL_ROOT" \
+	--output-dir "$LOMO_EVAL_ROOT/summary_epoch${WEIGHTS}" \
+	--motifs AGACT,GAACT,GGACA,GGACC,GGACT,TGACT \
+	--eval-glob 'heldout_*' \
+	--threshold 0.5
+
+cat "$LOMO_EVAL_ROOT/summary_epoch${WEIGHTS}/lomo_summary.tsv"
+
+
+# 14. Optional: compare new-logic mixed model on normal mAFiA heldout
+
+# 这一步只回答 "MoDiDeC positive-motif-neg mixing 是否改善普通 heldout"。
+# 它不能替代 LOMO，也不能证明 wild-type generalization。
+
+PRETRAINED=/data/biolab-nvme-pcie2/lijy/bonito_models/rna002_70bps_sup@v3
+DATASET=/data/biolab-nvme-pcie2/lijy/tetramod_mix_rna002_motifneg/chunks/stage1_train_mafia_modidec_m6a_positive_motif_neg
+OUT=/data/biolab-nvme-pcie2/lijy/tetramod_models/stage1_mafia_modidec_positive_motif_neg_lr1e4_bs64_wd1e2
+MIX_CHUNKS=SET_FROM_MAFIA_STAGE1_MERGE_SUMMARY_TRAIN_NUM_SAMPLES
+MIX_VALID_CHUNKS=SET_FROM_MAFIA_STAGE1_MERGE_SUMMARY_VALIDATION_NUM_SAMPLES
+
+tetramod train_promote -f "$OUT" \
+	--directory "$DATASET" \
+	--config "$CONFIG" \
+	--pretrained "$PRETRAINED" \
+	--device cuda:0 \
+	--promote-stage control \
+	--promote-base A \
+	--lr 1e-4 \
+	--epochs 20 \
+	--batch 64 \
+	--chunks "$MIX_CHUNKS" \
+	--valid-chunks "$MIX_VALID_CHUNKS" \
+	--num-workers 8 \
+	--seed 114514 \
+	--grad-accum-split 1 \
+	--save-optim-every 5 \
+	--profile-chunks 20000 \
+	--no-compile
+
+for D in "$MAFIA_HELDOUT_ROOT"/*; do
+NAME=$(basename "$D")
+python validate/evaluate_mafia_stage1.py "$OUT" \
 	--dataset-dir "$D" \
 	--split train \
 	--weights 6 \
 	--device cuda:0 \
 	--batchsize 64 \
 	--num-workers 8 \
-	--output-dir "val_res/stage1_mix_positive_motif_neg_epoch6_mafia_heldout_${NAME}" \
+	--output-dir "$REPO/val_res/stage1_mix_positive_motif_neg_epoch6_mafia_heldout_${NAME}" \
 	--write-sites
 done
-
-
-# 14. New-logic MoDiDeC #11 heldout validation
-
-MODIDEC_H11=/data/biolab-nvme-pcie2/lijy/tetramod_modidec_rna002_motifneg/chunks/heldout_modidec_m6a_rna002_positive_motif_neg/modidec_h11
-
-python validate/evaluate_mafia_stage1.py "$MODEL" \
-	--dataset-dir "$MODIDEC_H11" \
-	--split train \
-	--weights 6 \
-	--device cuda:0 \
-	--batchsize 64 \
-	--num-workers 8 \
-	--output-dir "val_res/stage1_mix_positive_motif_neg_epoch6_modidec_h11" \
-	--write-sites
-
-
-# 15. New-logic visualization
-
-python dataset_check/plot_mafia_stage1_visuals.py \
-	--motif-balance dataset_check_res/stage1_train_mafia_modidec_m6a_positive_motif_neg/check_reports/motif_balance.tsv \
-	--internal-eval-dir val_res/stage1_mix_positive_motif_neg_epoch6_internal_valid \
-	--heldout-glob 'val_res/stage1_mix_positive_motif_neg_epoch6_mafia_heldout_*' \
-	--output-dir val_res/stage1_mix_positive_motif_neg_epoch6_figures_all_motifs \
-	--training-csv /data/biolab-nvme-pcie2/lijy/tetramod_models/stage1_mafia_modidec_positive_motif_neg_lr1e4_bs64_wd1e2/training.csv \
-	--internal-label 'Mixed internal validation' \
-	--heldout-label 'mAFiA final heldout' \
-	--heldout-prefix stage1_mix_positive_motif_neg_epoch6_mafia_heldout_ \
-	--motifs AAACA,AGACA,AGACC,AGACT,GAACC,GAACT,GGACC,GGACA,GGACT,TAACG,TAACT,TGACT
