@@ -9,7 +9,9 @@ builder therefore treats each read as an internal-label source:
 - chunks containing a matched m6A oligo center are positive, with only that
   explicit center A labeled as m6A;
 - chunks that do not overlap any matched m6A oligo interval are negative, with
-  one representative A in the chunk labeled canonical_A by default;
+  one representative A in the chunk labeled canonical_A by default.  Negative
+  A sites can optionally be restricted to the same centered motifs as the
+  selected MoDiDeC m6A oligos;
 - all other chunks are ignored.
 
 Input BAM must be Dorado RNA002 basecalls with --emit-moves.
@@ -46,6 +48,8 @@ DEFAULT_NEGATIVE_CHUNKS_PER_POSITIVE = 2
 DEFAULT_NEGATIVE_EXCLUSION_BASES = 0
 NEGATIVE_LABEL_MODE_CENTER = "center"
 NEGATIVE_LABEL_MODE_ALL_A = "all-a"
+NEGATIVE_MOTIF_MODE_ANY_A = "any-a"
+NEGATIVE_MOTIF_MODE_POSITIVE_MOTIFS = "positive-motifs"
 
 
 def interval_overlaps_any(start: int, end: int, intervals: Sequence[tuple[int, int]]) -> bool:
@@ -58,6 +62,8 @@ def choose_negative_windows(
     signal_order_sequence: str,
     excluded_base_intervals: Sequence[tuple[int, int]],
     *,
+    negative_motifs: set[str] | None,
+    metadata_kmer: int,
     max_negative: int,
     rng: np.random.Generator,
 ) -> list[tuple[int, int]]:
@@ -70,8 +76,16 @@ def choose_negative_windows(
         if interval_overlaps_any(left_idx, right_idx, excluded_base_intervals):
             continue
         target_seq = signal_order_sequence[left_idx:right_idx]
-        if "A" not in target_seq.upper():
+        a_indices = np.flatnonzero(np.fromiter((base == "A" for base in target_seq.upper()), dtype=bool))
+        if a_indices.size == 0:
             continue
+        if negative_motifs is not None:
+            has_matching_motif = any(
+                ctc.centered_kmer(target_seq, int(idx), metadata_kmer).upper().replace("U", "T") in negative_motifs
+                for idx in a_indices
+            )
+            if not has_matching_motif:
+                continue
         candidates.append((win_start, win_end))
 
     if max_negative <= 0 or len(candidates) <= max_negative:
@@ -94,6 +108,7 @@ def sample_from_window(
     metadata_kmer: int,
     max_label_len: int | None,
     negative_label_mode: str,
+    negative_motifs: set[str] | None,
 ) -> mafia.MafiaSample | None:
     left_idx = int(np.searchsorted(emitted_positions, win_start, side="left"))
     right_idx = int(np.searchsorted(emitted_positions, win_end, side="left"))
@@ -115,10 +130,22 @@ def sample_from_window(
         a_indices = np.flatnonzero(target == ctc.BASE_TO_INT["A"]).astype(np.int64)
         if a_indices.size == 0:
             return None
-        primary_idx = int(a_indices[np.argmin(np.abs(a_indices - ((target.shape[0] - 1) / 2.0)))])
+        candidate_indices = a_indices
+        if negative_motifs is not None:
+            candidate_indices = np.asarray(
+                [
+                    int(idx)
+                    for idx in a_indices
+                    if ctc.centered_kmer(target_seq, int(idx), metadata_kmer).upper().replace("U", "T") in negative_motifs
+                ],
+                dtype=np.int64,
+            )
+            if candidate_indices.size == 0:
+                return None
+        primary_idx = int(candidate_indices[np.argmin(np.abs(candidate_indices - ((target.shape[0] - 1) / 2.0)))])
         if negative_label_mode == NEGATIVE_LABEL_MODE_ALL_A:
-            mod_target[a_indices] = mafia.CANONICAL_A_LABEL
-            negative_count = int(a_indices.size)
+            mod_target[candidate_indices] = mafia.CANONICAL_A_LABEL
+            negative_count = int(candidate_indices.size)
         else:
             mod_target[primary_idx] = mafia.CANONICAL_A_LABEL
             negative_count = 1
@@ -210,6 +237,9 @@ def build_samples_for_task(
         "negative_centers": 0,
     }
     samples: list[mafia.MafiaSample] = []
+    negative_motifs = None
+    if str(args.negative_motif_mode) == NEGATIVE_MOTIF_MODE_POSITIVE_MOTIFS:
+        negative_motifs = {str(oligo.motif).upper().replace("U", "T") for oligo in oligos}
 
     try:
         raw_signal = ctc.fetch_calibrated_signal(task.pod5_read_id)
@@ -326,6 +356,7 @@ def build_samples_for_task(
             metadata_kmer=settings.metadata_kmer,
             max_label_len=settings.max_label_len,
             negative_label_mode=str(args.negative_label_mode),
+            negative_motifs=None,
         )
         if sample is None:
             stats["chunks_no_label"] += 1
@@ -344,6 +375,8 @@ def build_samples_for_task(
         emitted_positions_arr,
         signal_order_sequence,
         excluded_base_intervals,
+        negative_motifs=negative_motifs,
+        metadata_kmer=settings.metadata_kmer,
         max_negative=max_negative,
         rng=rng,
     )
@@ -361,6 +394,7 @@ def build_samples_for_task(
             metadata_kmer=settings.metadata_kmer,
             max_label_len=settings.max_label_len,
             negative_label_mode=str(args.negative_label_mode),
+            negative_motifs=negative_motifs,
         )
         if sample is None:
             stats["chunks_no_label"] += 1
@@ -422,6 +456,10 @@ def write_summary(output_dir: Path, args, oligos: Sequence[mafia.OligoSpec], cou
         "negative_chunks_per_positive": int(args.negative_chunks_per_positive),
         "negative_exclusion_bases": int(args.negative_exclusion_bases),
         "negative_label_mode": str(args.negative_label_mode),
+        "negative_motif_mode": str(args.negative_motif_mode),
+        "negative_motifs": sorted({str(oligo.motif).upper().replace("U", "T") for oligo in oligos})
+        if str(args.negative_motif_mode) == NEGATIVE_MOTIF_MODE_POSITIVE_MOTIFS
+        else [],
         "min_oligo_identity": float(args.min_oligo_identity),
         "max_oligo_mismatches": int(args.max_oligo_mismatches),
         "allow_reverse_match": bool(args.allow_reverse_match),
@@ -474,6 +512,16 @@ def parse_args(argv=None):
             "How to label internal negative chunks. 'center' labels one representative canonical A "
             "per chunk, matching mAFiA center-site supervision more closely. 'all-a' labels every A "
             "in the chunk as canonical_A."
+        ),
+    )
+    parser.add_argument(
+        "--negative-motif-mode",
+        choices=[NEGATIVE_MOTIF_MODE_ANY_A, NEGATIVE_MOTIF_MODE_POSITIVE_MOTIFS],
+        default=NEGATIVE_MOTIF_MODE_ANY_A,
+        help=(
+            "How to choose internal negative A sites. 'any-a' samples any A-containing chunk outside "
+            "matched m6A oligo intervals. 'positive-motifs' only samples chunks with an A whose "
+            "centered motif matches one of the selected MoDiDeC m6A oligo motifs."
         ),
     )
     parser.add_argument("--seed", type=int, default=1)
