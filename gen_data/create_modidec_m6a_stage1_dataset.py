@@ -117,7 +117,7 @@ def sample_from_window(
         site_key = f"modidec_unmodified:{primary_idx}:1:A"
         site_pos = primary_idx
         kmer_context = ctc.centered_kmer(target_seq, primary_idx, metadata_kmer)
-        motif_context = ctc.classify_m6a_motif(target_seq, primary_idx)
+        motif_context = kmer_context
         oligo_ids = "unmatched_unmodified_window"
         oligo_motifs = motif_context
         oligo_orientations = "."

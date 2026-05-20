@@ -31,6 +31,7 @@ SEED="${SEED:-114514}"
 SKIP_EXISTING="${SKIP_EXISTING:-1}"
 RUN_DATASET_CHECK="${RUN_DATASET_CHECK:-1}"
 BUILD_HELDOUT="${BUILD_HELDOUT:-1}"
+MERGE_BALANCE_TRAIN="${MERGE_BALANCE_TRAIN:-0}"
 MAX_RECORDS="${MAX_RECORDS:--1}"
 MAX_CHUNKS="${MAX_CHUNKS:--1}"
 MIN_OLIGO_IDENTITY="${MIN_OLIGO_IDENTITY:-0.86}"
@@ -251,10 +252,16 @@ merge_train_dataset() {
   [[ "${#merge_args[@]}" -gt 0 ]] || fail "No train BAM specs were provided."
 
   echo "[merge train] $TRAIN_DATASET_DIR"
+  local balance_args=()
+  if [[ "$MERGE_BALANCE_TRAIN" != "1" ]]; then
+    balance_args+=(--no-balance-train)
+  fi
+
   python gen_data/merge_mafia_stage1_datasets.py \
     "${merge_args[@]}" \
     --output-dir "$TRAIN_DATASET_DIR" \
     --valid-fraction "$VALID_FRACTION" \
+    "${balance_args[@]}" \
     --seed "$SEED"
 }
 
@@ -317,6 +324,7 @@ print_config() {
   echo "  CHUNK_LEN=$CHUNK_LEN OVERLAP=$OVERLAP"
   echo "  NEGATIVE_CHUNKS_PER_POSITIVE=$NEGATIVE_CHUNKS_PER_POSITIVE"
   echo "  NEGATIVE_EXCLUSION_BASES=$NEGATIVE_EXCLUSION_BASES"
+  echo "  MERGE_BALANCE_TRAIN=$MERGE_BALANCE_TRAIN"
   echo "  TRAIN_DATASET_DIR=$TRAIN_DATASET_DIR"
   echo "  HELDOUT_DATASET_ROOT=$HELDOUT_DATASET_ROOT"
   echo "  OLIGO_MANIFEST=$OLIGO_MANIFEST"
