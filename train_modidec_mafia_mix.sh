@@ -206,22 +206,30 @@ done
 
 # 11. Train six mAFiA-only LOMO Stage 1 models
 
-# 训练前对每个 leave_${MOTIF} 查看 lomo_datasets_summary.json 或实际数组大小。
-# --chunks 应设置为 train.num_samples 向下取 batch=64 的整数倍；
-# --valid-chunks 使用 validation.num_samples，或同样取 batch 整数倍以保持日志整齐。
+# 这一段可以一次性训练 6 个 leave-one-motif-out 模型。
+# --chunks 按 lomo_datasets_summary.json 中 train.num_samples 向下取 batch=64 的整数倍；
+# --valid-chunks 固定为 4096，减少验证开销。最终结论以后面的 final heldout eval 为准。
 
 PRETRAINED=/data/biolab-nvme-pcie2/lijy/bonito_models/rna002_70bps_sup@v3
 CONFIG="$REPO/src/tetramod/models/configs/multihead_transformer_promote_stage1_adamw.toml"
 MODEL_ROOT=/data/biolab-nvme-pcie2/lijy/tetramod_models/lomo_stage1_mafia_6motif_lr1e4_bs64_wd1e2
+VALID_CHUNKS=4096
 
-# 示例：先为每个 motif 手动填入 CHUNKS/VALID_CHUNKS 后运行。
-# 如果六个 LOMO 子集大小接近，也可以共用同一组 chunks，但不要盲目沿用旧的 37184/4152。
+for MOTIF in AGACT GAACT GGACA GGACC GGACT TGACT; do
+case "$MOTIF" in
+	AGACT) CHUNKS=25600 ;;
+	GAACT) CHUNKS=35136 ;;
+	GGACA) CHUNKS=23744 ;;
+	GGACC) CHUNKS=26944 ;;
+	GGACT) CHUNKS=34368 ;;
+	TGACT) CHUNKS=31360 ;;
+	*) echo "[error] Unknown LOMO motif: $MOTIF" >&2; exit 1 ;;
+esac
 
-MOTIF=GAACT
 DATASET="$LOMO_ROOT/leave_${MOTIF}"
 OUT="$MODEL_ROOT/leave_${MOTIF}"
-CHUNKS=SET_TRAIN_CHUNKS_ROUNDED_DOWN_TO_BATCH64
-VALID_CHUNKS=SET_VALIDATION_CHUNKS
+
+echo "[train LOMO] MOTIF=$MOTIF DATASET=$DATASET OUT=$OUT CHUNKS=$CHUNKS VALID_CHUNKS=$VALID_CHUNKS"
 
 tetramod train_promote -f "$OUT" \
 	--directory "$DATASET" \
@@ -231,7 +239,7 @@ tetramod train_promote -f "$OUT" \
 	--promote-stage control \
 	--promote-base A \
 	--lr 1e-4 \
-	--epochs 20 \
+	--epochs 10 \
 	--batch 64 \
 	--chunks "$CHUNKS" \
 	--valid-chunks "$VALID_CHUNKS" \
@@ -241,13 +249,7 @@ tetramod train_promote -f "$OUT" \
 	--save-optim-every 5 \
 	--profile-chunks 20000 \
 	--no-compile
-
-# 其余 motif 重复上面的块：
-#   MOTIF=AGACT
-#   MOTIF=GGACA
-#   MOTIF=GGACC
-#   MOTIF=GGACT
-#   MOTIF=TGACT
+done
 
 
 # 12. Evaluate each LOMO model on mAFiA final heldout runs
