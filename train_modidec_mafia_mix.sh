@@ -376,3 +376,26 @@ python validate/evaluate_mafia_stage1.py "$OUT" \
 	--output-dir "$REPO/val_res/stage1_mix_positive_motif_neg_epoch6_mafia_heldout_${NAME}" \
 	--write-sites
 done
+
+
+
+tetramod train_promote -f /data/biolab-nvme-pcie2/lijy/tetramod_models/stage1_full_mafia_modidec_motifneg \
+    --config /home/lijy/workspace/TetraMod/src/tetramod/models/configs/multihead_transformer_promote_stage1_adamw.toml \
+    --pretrained /data/biolab-nvme-pcie2/lijy/bonito_models/rna002_70bps_sup@v3 \
+    --directory /data/biolab-nvme-pcie2/lijy/tetramod_mix_rna002_motifneg/chunks/stage1_train_mafia_modidec_m6a_positive_motif_neg_FULL \
+    --device cuda:0 \
+    --lr 1e-4 \
+    --seed 114514 \
+    --epochs 15 \
+    --batch 128 \
+    --chunks 40000 \
+    --valid-chunks 5000 \
+    --no-amp \
+    --force \
+    --save-optim-every 5 \
+    --grad-accum-split 1 \
+    --quantile-grad-clip \
+    --num-workers 8 \
+    --profile-chunks 20000 \
+    --promote-stage control \
+    --promote-base A 
